@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ingestFromInstance } from "@/lib/servicenow/ingest";
+import { progressStore } from "@/lib/servicenow/progress-store";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -24,12 +25,18 @@ export async function POST(request: Request) {
     );
   }
 
-  // Start ingestion in background (non-blocking)
-  ingestFromInstance(snapshotId, {
-    url: instance.url,
-    username: instance.username,
-    password: instance.encryptedPassword, // TODO: decrypt
-  }).catch((err) => {
+  // Start ingestion in background (non-blocking) with progress tracking
+  ingestFromInstance(
+    snapshotId,
+    {
+      url: instance.url,
+      username: instance.username,
+      password: instance.encryptedPassword, // TODO: decrypt
+    },
+    (progress) => {
+      progressStore.set(snapshotId, progress);
+    }
+  ).catch((err) => {
     console.error(
       `Ingestion failed for snapshot ${snapshotId} (instance: ${instance.name} / ${instance.url}):`,
       err instanceof Error ? err.message : err

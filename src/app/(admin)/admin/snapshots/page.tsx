@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -52,6 +52,106 @@ interface Instance {
   url: string;
 }
 
+interface ProgressEvent {
+  phase: string;
+  current: number;
+  total: number;
+  message: string;
+}
+
+const ACTIVE_STATUSES = new Set([
+  "PENDING",
+  "INGESTING_TABLES",
+  "INGESTING_COLUMNS",
+  "PROCESSING",
+]);
+
+function isActive(status: string) {
+  return ACTIVE_STATUSES.has(status);
+}
+
+function ProgressBar({ current, total }: { current: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+  return (
+    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+      <div
+        className="bg-primary h-full rounded-full transition-all duration-300 ease-out"
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
+function ProgressDisplay({ snapshotId }: { snapshotId: string }) {
+  const [progress, setProgress] = useState<ProgressEvent | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    const es = new EventSource(`/api/ingest/progress/${snapshotId}`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const data: ProgressEvent = JSON.parse(event.data);
+        setProgress(data);
+      } catch {
+        // Ignore parse errors
+      }
+    };
+
+    es.onerror = () => {
+      // Connection lost — EventSource auto-reconnects
+    };
+
+    return () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+  }, [snapshotId]);
+
+  if (!progress) {
+    return (
+      <div className="space-y-1">
+        <p className="text-xs text-muted-foreground">Connecting...</p>
+      </div>
+    );
+  }
+
+  const phaseLabels: Record<string, string> = {
+    waiting: "Waiting to start",
+    tables: "Fetching tables",
+    columns: "Fetching columns",
+    processing: "Computing statistics",
+    complete: "Complete",
+    error: "Failed",
+  };
+
+  const phaseLabel = phaseLabels[progress.phase] || progress.phase;
+  const showBar = progress.total > 0 && progress.phase !== "complete" && progress.phase !== "error";
+  const showCount = progress.total > 0;
+
+  return (
+    <div className="space-y-1.5 min-w-[200px]">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium">{phaseLabel}</span>
+        {showCount && (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {progress.current.toLocaleString()} / {progress.total.toLocaleString()}
+          </span>
+        )}
+      </div>
+      {showBar && (
+        <ProgressBar current={progress.current} total={progress.total} />
+      )}
+      {progress.phase === "processing" && (
+        <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+          <div className="bg-primary h-full rounded-full w-full animate-pulse" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SnapshotsPage() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -64,20 +164,33 @@ export default function SnapshotsPage() {
     isBaseline: true,
   });
   const [saving, setSaving] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchSnapshots = () => {
-    // Fetch all snapshots (not just completed)
+  const fetchSnapshots = useCallback(() => {
     fetch("/api/snapshots/all")
       .then((r) => r.json())
-      .then(setSnapshots)
+      .then((data: Snapshot[]) => {
+        setSnapshots(data);
+        // Auto-stop polling when no active ingestions
+        const hasActive = data.some((s) => isActive(s.status));
+        if (!hasActive && pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      })
       .catch(() => {
-        // Fallback to regular endpoint
         fetch("/api/snapshots")
           .then((r) => r.json())
           .then(setSnapshots)
           .catch(console.error);
       });
-  };
+  }, []);
+
+  // Start polling for snapshot status updates (to catch status transitions)
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return; // Already polling
+    pollRef.current = setInterval(fetchSnapshots, 10000); // 10s for status updates
+  }, [fetchSnapshots]);
 
   useEffect(() => {
     fetchSnapshots();
@@ -85,14 +198,25 @@ export default function SnapshotsPage() {
       .then((r) => r.json())
       .then(setInstances)
       .catch(console.error);
-  }, []);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [fetchSnapshots]);
+
+  // Start polling if there are active snapshots
+  useEffect(() => {
+    const hasActive = snapshots.some((s) => isActive(s.status));
+    if (hasActive) {
+      startPolling();
+    }
+  }, [snapshots, startPolling]);
 
   const handleCreateAndIngest = async () => {
     if (!form.label || !form.instanceId) return;
     setSaving(true);
 
     try {
-      // Create snapshot
       const snapRes = await fetch("/api/snapshots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -108,7 +232,6 @@ export default function SnapshotsPage() {
       if (!snapRes.ok) throw new Error("Failed to create snapshot");
       const snapshot = await snapRes.json();
 
-      // Trigger ingestion
       await fetch("/api/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -127,12 +250,8 @@ export default function SnapshotsPage() {
         isBaseline: true,
       });
 
-      // Poll for updates
-      const pollInterval = setInterval(() => {
-        fetchSnapshots();
-      }, 5000);
-      setTimeout(() => clearInterval(pollInterval), 300000); // Stop after 5 min
       fetchSnapshots();
+      startPolling();
     } catch (err) {
       console.error(err);
     } finally {
@@ -285,7 +404,13 @@ export default function SnapshotsPage() {
                       </p>
                     )}
                   </TableCell>
-                  <TableCell>{statusBadge(snap.status)}</TableCell>
+                  <TableCell>
+                    {isActive(snap.status) ? (
+                      <ProgressDisplay snapshotId={snap.id} />
+                    ) : (
+                      statusBadge(snap.status)
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm">
                     {snap.sourceType?.replace(/_/g, " ").toLowerCase()}
                   </TableCell>
