@@ -45,15 +45,15 @@ export async function GET(
     return NextResponse.json({ error: "Table not found" }, { status: 404 });
   }
 
-  // Build inheritance chain (walk up superClassName)
-  const inheritanceChain: string[] = [];
+  // Build inheritance chain (walk up superClassName) with labels
+  const inheritanceChain: { name: string; label: string }[] = [];
   let current = table.superClassName;
   while (current) {
-    inheritanceChain.push(current);
     const parent = await prisma.snapshotTable.findUnique({
       where: { snapshotId_name: { snapshotId, name: current } },
-      select: { superClassName: true },
+      select: { label: true, superClassName: true },
     });
+    inheritanceChain.push({ name: current, label: parent?.label || current });
     current = parent?.superClassName ?? null;
   }
 
@@ -61,10 +61,10 @@ export async function GET(
   const inheritedColumns = [];
   for (const ancestor of inheritanceChain) {
     const ancestorTable = await prisma.snapshotTable.findUnique({
-      where: { snapshotId_name: { snapshotId, name: ancestor } },
+      where: { snapshotId_name: { snapshotId, name: ancestor.name } },
       include: {
         columns: {
-          where: { definedOnTable: ancestor },
+          where: { definedOnTable: ancestor.name },
           orderBy: { element: "asc" },
           select: {
             element: true,

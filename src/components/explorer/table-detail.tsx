@@ -95,12 +95,21 @@ export function TableDetailView({
   const ownColumns = tableDetail.columns.filter(
     (c) => c.definedOnTable === tableName
   );
+
+  // Build label lookup from inheritance chain
+  const tableLabelMap = new Map<string, string>();
+  for (const ancestor of tableDetail.inheritanceChain) {
+    tableLabelMap.set(ancestor.name, ancestor.label);
+  }
+
+  // Group inherited columns in inheritance chain order
   const inheritedByTable = new Map<string, ColumnDetail[]>();
-  for (const col of tableDetail.columns) {
-    if (col.definedOnTable !== tableName) {
-      const existing = inheritedByTable.get(col.definedOnTable) || [];
-      existing.push(col);
-      inheritedByTable.set(col.definedOnTable, existing);
+  for (const ancestor of tableDetail.inheritanceChain) {
+    const cols = tableDetail.columns.filter(
+      (c) => c.definedOnTable === ancestor.name
+    );
+    if (cols.length > 0) {
+      inheritedByTable.set(ancestor.name, cols);
     }
   }
 
@@ -137,13 +146,13 @@ export function TableDetailView({
           <div className="mt-3 flex items-center gap-1 text-sm">
             <span className="text-muted-foreground">Extends:</span>
             {tableDetail.inheritanceChain.map((parent, i) => (
-              <span key={parent} className="flex items-center gap-1">
+              <span key={parent.name} className="flex items-center gap-1">
                 {i > 0 && <span className="text-muted-foreground">&rarr;</span>}
                 <button
-                  onClick={() => onNavigateTable(parent)}
+                  onClick={() => onNavigateTable(parent.name)}
                   className="text-primary hover:underline font-mono"
                 >
-                  {parent}
+                  {parent.label}
                 </button>
               </span>
             ))}
@@ -195,7 +204,7 @@ export function TableDetailView({
                     onClick={() => onNavigateTable(source)}
                     className="text-sm text-primary hover:underline font-mono"
                   >
-                    {source}
+                    {tableLabelMap.get(source) || source}
                   </button>
                   <Badge variant="outline" className="text-xs">
                     {columns.length}

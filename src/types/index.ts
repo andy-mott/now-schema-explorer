@@ -42,7 +42,7 @@ export interface TableDetail {
   totalColumnCount: number;
   childTableCount: number;
   columns: ColumnDetail[];
-  inheritanceChain: string[];
+  inheritanceChain: { name: string; label: string }[];
   childTables: string[];
 }
 

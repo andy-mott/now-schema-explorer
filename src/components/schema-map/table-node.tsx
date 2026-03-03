@@ -3,7 +3,14 @@
 import { memo, useState, useEffect, useCallback } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { ChevronDown, ChevronRight, Columns3, ArrowUpRight } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Columns3,
+  ArrowUpRight,
+  Minus,
+  Plus,
+} from "lucide-react";
 
 // Deterministic color from scope name
 function scopeColor(scope: string | null): string {
@@ -21,6 +28,14 @@ interface ColumnInfo {
   label: string;
   internalType: string;
   referenceTable: string | null;
+  definedOnTable: string;
+}
+
+interface ColumnGroup {
+  tableName: string;
+  tableLabel: string;
+  columns: ColumnInfo[];
+  isOwn: boolean;
 }
 
 interface TableNodeData {
@@ -43,8 +58,9 @@ interface TableNodeData {
 
 function TableNodeComponent({ id, data }: NodeProps) {
   const d = data as unknown as TableNodeData;
-  const [columns, setColumns] = useState<ColumnInfo[]>([]);
+  const [columnGroups, setColumnGroups] = useState<ColumnGroup[]>([]);
   const [loadingColumns, setLoadingColumns] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const handleToggle = useCallback(
     (e: React.MouseEvent) => {
@@ -62,9 +78,22 @@ function TableNodeComponent({ id, data }: NodeProps) {
     [d]
   );
 
-  // Fetch columns when expanded
+  const toggleGroup = useCallback((tableName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(tableName)) {
+        next.delete(tableName);
+      } else {
+        next.add(tableName);
+      }
+      return next;
+    });
+  }, []);
+
+  // Fetch columns when expanded, grouped by inheritance level
   useEffect(() => {
-    if (!d.expanded || columns.length > 0) return;
+    if (!d.expanded || columnGroups.length > 0) return;
 
     setLoadingColumns(true);
     fetch(
@@ -72,17 +101,45 @@ function TableNodeComponent({ id, data }: NodeProps) {
     )
       .then((r) => r.json())
       .then((detail) => {
-        // Only show own columns (defined on this table), limit to 20
-        const own = (detail.columns || [])
-          .filter(
-            (c: { definedOnTable: string }) => c.definedOnTable === d.name
-          )
-          .slice(0, 20);
-        setColumns(own);
+        const allColumns: ColumnInfo[] = detail.columns || [];
+        const inheritanceChain: { name: string; label: string }[] =
+          detail.inheritanceChain || [];
+
+        // Build label lookup
+        const labelMap = new Map<string, string>();
+        labelMap.set(d.name, d.label);
+        for (const a of inheritanceChain) {
+          labelMap.set(a.name, a.label);
+        }
+
+        // Order: own table first, then inheritance chain order
+        const orderedTables = [
+          d.name,
+          ...inheritanceChain.map((a) => a.name),
+        ];
+
+        const groups: ColumnGroup[] = [];
+        for (const tblName of orderedTables) {
+          const cols = allColumns.filter(
+            (c) => c.definedOnTable === tblName
+          );
+          if (cols.length > 0) {
+            groups.push({
+              tableName: tblName,
+              tableLabel: labelMap.get(tblName) || tblName,
+              columns: cols,
+              isOwn: tblName === d.name,
+            });
+          }
+        }
+
+        setColumnGroups(groups);
+        // Auto-expand own columns
+        setExpandedGroups(new Set([d.name]));
       })
       .catch(console.error)
       .finally(() => setLoadingColumns(false));
-  }, [d.expanded, d.name, d.snapshotId, columns.length]);
+  }, [d.expanded, d.name, d.label, d.snapshotId, columnGroups.length]);
 
   const borderColor = scopeColor(d.scopeName);
 
@@ -96,8 +153,8 @@ function TableNodeComponent({ id, data }: NodeProps) {
       style={{
         borderLeftWidth: 4,
         borderLeftColor: borderColor,
-        minWidth: 220,
-        maxWidth: 300,
+        minWidth: 240,
+        maxWidth: 320,
       }}
       onDoubleClick={handleDoubleClick}
     >
@@ -146,7 +203,7 @@ function TableNodeComponent({ id, data }: NodeProps) {
               <ChevronRight className="w-3 h-3" />
             )}
             <Columns3 className="w-3 h-3" />
-            <span>{d.ownColumnCount}</span>
+            <span>{d.totalColumnCount}</span>
           </button>
           {d.scopeLabel && (
             <span
@@ -160,41 +217,87 @@ function TableNodeComponent({ id, data }: NodeProps) {
         </div>
       </div>
 
-      {/* Expanded columns list */}
+      {/* Expanded columns grouped by inheritance level */}
       {d.expanded && (
-        <div className="border-t px-2 py-1.5 max-h-[220px] overflow-y-auto">
+        <div className="border-t max-h-[400px] overflow-y-auto">
           {loadingColumns ? (
-            <div className="text-xs text-muted-foreground py-1 px-1">
-              Loading...
+            <div className="text-xs text-muted-foreground py-2 px-3">
+              Loading columns...
             </div>
-          ) : columns.length === 0 ? (
-            <div className="text-xs text-muted-foreground py-1 px-1">
+          ) : columnGroups.length === 0 ? (
+            <div className="text-xs text-muted-foreground py-2 px-3">
               No columns
             </div>
           ) : (
-            <ul className="space-y-0.5">
-              {columns.map((col) => (
-                <li
-                  key={col.element}
-                  className="flex items-center gap-1.5 text-xs py-0.5 px-1 rounded hover:bg-muted/50"
-                >
-                  <span className="font-mono truncate flex-1 min-w-0">
-                    {col.element}
-                  </span>
-                  <span className="text-muted-foreground text-[10px] flex-shrink-0">
-                    {col.internalType}
-                  </span>
-                  {col.referenceTable && (
-                    <ArrowUpRight className="w-3 h-3 text-blue-500 flex-shrink-0" />
+            columnGroups.map((group) => {
+              const isExpanded = expandedGroups.has(group.tableName);
+              return (
+                <div key={group.tableName}>
+                  {/* Group header */}
+                  <button
+                    onClick={(e) => toggleGroup(group.tableName, e)}
+                    className={`
+                      w-full flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                      border-b hover:bg-muted/50 transition-colors cursor-pointer
+                      ${group.isOwn ? "text-foreground" : "text-muted-foreground"}
+                    `}
+                    style={
+                      !group.isOwn
+                        ? { color: "hsl(var(--destructive))", opacity: 0.8 }
+                        : undefined
+                    }
+                  >
+                    {isExpanded ? (
+                      <Minus className="w-3 h-3 flex-shrink-0" />
+                    ) : (
+                      <Plus className="w-3 h-3 flex-shrink-0" />
+                    )}
+                    <span className={group.isOwn ? "" : "font-semibold"}>
+                      {group.isOwn ? "Columns" : `${group.tableLabel} Columns`}
+                    </span>
+                  </button>
+
+                  {/* Column list */}
+                  {isExpanded && (
+                    <div
+                      className={`px-2 py-1 ${
+                        group.isOwn ? "" : "bg-amber-50/50 dark:bg-amber-950/10"
+                      }`}
+                    >
+                      <ul className="space-y-0">
+                        {group.columns.slice(0, 30).map((col) => (
+                          <li
+                            key={col.element}
+                            className="flex items-center justify-between gap-2 text-xs py-0.5 px-1 rounded hover:bg-muted/50"
+                          >
+                            <span className="truncate min-w-0">
+                              {col.label || col.element}:
+                            </span>
+                            <span className="flex items-center gap-1 flex-shrink-0 text-muted-foreground">
+                              {col.referenceTable ? (
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 flex items-center gap-0.5">
+                                  reference
+                                  <ArrowUpRight className="w-2.5 h-2.5" />
+                                </span>
+                              ) : (
+                                <span className="text-[10px]">
+                                  {col.internalType}
+                                </span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                        {group.columns.length > 30 && (
+                          <li className="text-[10px] text-muted-foreground py-0.5 px-1">
+                            +{group.columns.length - 30} more...
+                          </li>
+                        )}
+                      </ul>
+                    </div>
                   )}
-                </li>
-              ))}
-              {d.ownColumnCount > 20 && (
-                <li className="text-xs text-muted-foreground py-0.5 px-1">
-                  +{d.ownColumnCount - 20} more...
-                </li>
-              )}
-            </ul>
+                </div>
+              );
+            })
           )}
         </div>
       )}
