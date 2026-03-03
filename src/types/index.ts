@@ -1,3 +1,5 @@
+export type { GraphNode, GraphEdge, GraphResponse } from "./graph";
+
 export interface TreeTableNode {
   name: string;
   label: string;

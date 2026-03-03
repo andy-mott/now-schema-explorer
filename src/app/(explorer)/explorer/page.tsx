@@ -6,15 +6,19 @@ import { TableDetailView } from "@/components/explorer/table-detail";
 import { VersionSelector } from "@/components/explorer/version-selector";
 import { ScopeFilter } from "@/components/explorer/scope-filter";
 import { SearchBar } from "@/components/explorer/search-bar";
+import { SchemaMap } from "@/components/schema-map/schema-map";
 import { useExplorerStore } from "@/stores/explorer-store";
+import { Table2, Map } from "lucide-react";
 import type { SnapshotSummary } from "@/types";
 
 export default function ExplorerPage() {
   const {
     selectedSnapshotId,
     selectedTable,
+    viewMode,
     setSelectedTable,
     setAvailableSnapshots,
+    setViewMode,
   } = useExplorerStore();
   const [scopes, setScopes] = useState<
     { name: string; label: string; count: number }[]
@@ -51,31 +55,61 @@ export default function ExplorerPage() {
         <VersionSelector />
         <ScopeFilter scopes={scopes} />
         <SearchBar />
-        {selectedSnapshotId && (
-          <span className="text-xs text-muted-foreground ml-auto">
-            Click a table to view details
-          </span>
-        )}
+
+        <div className="ml-auto flex items-center gap-1">
+          {/* View mode toggle */}
+          <div className="flex items-center rounded-md border bg-background p-0.5">
+            <button
+              onClick={() => setViewMode("detail")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                viewMode === "detail"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Table2 className="w-3.5 h-3.5" />
+              Detail
+            </button>
+            <button
+              onClick={() => setViewMode("map")}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                viewMode === "map"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Map className="w-3.5 h-3.5" />
+              Schema Map
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Main content: tree + detail */}
+      {/* Main content: tree + detail/map */}
       <div className="flex flex-1 overflow-hidden">
         {/* Tree panel */}
         <div className="w-[380px] border-r overflow-hidden flex-shrink-0">
           <SchemaTree onSelectTable={handleSelectTable} />
         </div>
 
-        {/* Detail panel */}
-        <div className="flex-1 overflow-auto">
-          {selectedTable ? (
-            <TableDetailView
-              tableName={selectedTable}
-              onNavigateTable={handleSelectTable}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              Select a table from the tree to view its columns and relationships
+        {/* Right panel — switches between Detail and Schema Map */}
+        <div className="flex-1 overflow-hidden">
+          {viewMode === "detail" ? (
+            <div className="h-full overflow-auto">
+              {selectedTable ? (
+                <TableDetailView
+                  tableName={selectedTable}
+                  onNavigateTable={handleSelectTable}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  Select a table from the tree to view its columns and
+                  relationships
+                </div>
+              )}
             </div>
+          ) : (
+            <SchemaMap />
           )}
         </div>
       </div>
