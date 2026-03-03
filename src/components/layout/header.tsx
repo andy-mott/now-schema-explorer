@@ -35,6 +35,9 @@ export function Header() {
             </Link>
           ))}
         </nav>
+        <span className="ml-auto text-[10px] text-muted-foreground/50 font-mono select-all" title="Build version">
+          {process.env.NEXT_PUBLIC_COMMIT_HASH}
+        </span>
       </div>
     </header>
   );
