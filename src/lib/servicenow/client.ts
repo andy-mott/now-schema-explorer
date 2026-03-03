@@ -212,34 +212,39 @@ export class ServiceNowClient {
   }
 
   static parseTableRecord(record: SysDbObjectRecord) {
+    // With sysparm_display_value=all, ALL fields come as { display_value, value } objects
+    const sysId = getValue(record.sys_id);
+    const name = getValue(record.name);
     return {
-      sysId: record.sys_id,
-      name: record.name,
-      label: record.label || record.name,
+      sysId,
+      name,
+      label: getDisplayValue(record.label) || name,
       superClassName: getDisplayValue(record.super_class) || null,
       scopeName: getValue(record.sys_scope) || null,
       scopeLabel: getDisplayValue(record.sys_scope) || null,
-      isExtendable: record.is_extendable === "true",
-      accessibleFrom: record.accessible_from || null,
+      isExtendable: getValue(record.is_extendable) === "true",
+      accessibleFrom: getValue(record.accessible_from) || null,
       numberPrefix: getDisplayValue(record.number_ref) || null,
     };
   }
 
   static parseColumnRecord(record: SysDictionaryRecord) {
+    // With sysparm_display_value=all, ALL fields come as { display_value, value } objects
+    const element = getValue(record.element);
     return {
-      sysId: record.sys_id,
-      element: record.element,
-      label: record.column_label || record.element,
-      definedOnTable: record.name,
+      sysId: getValue(record.sys_id),
+      element,
+      label: getDisplayValue(record.column_label) || element,
+      definedOnTable: getValue(record.name),
       internalType: getDisplayValue(record.internal_type) || "string",
       referenceTable: getDisplayValue(record.reference) || null,
-      maxLength: record.max_length ? parseInt(record.max_length, 10) : null,
-      isMandatory: record.mandatory === "true",
-      isReadOnly: record.read_only === "true",
-      isActive: record.active !== "false",
-      isDisplay: record.display === "true",
-      isPrimary: record.primary === "true",
-      defaultValue: record.default_value || null,
+      maxLength: getValue(record.max_length) ? parseInt(getValue(record.max_length), 10) : null,
+      isMandatory: getValue(record.mandatory) === "true",
+      isReadOnly: getValue(record.read_only) === "true",
+      isActive: getValue(record.active) !== "false",
+      isDisplay: getValue(record.display) === "true",
+      isPrimary: getValue(record.primary) === "true",
+      defaultValue: getValue(record.default_value) || null,
     };
   }
 }

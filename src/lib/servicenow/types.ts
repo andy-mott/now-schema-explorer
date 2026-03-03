@@ -4,31 +4,34 @@ export interface ServiceNowCredentials {
   password: string;
 }
 
+// With sysparm_display_value=all, all fields come back as { display_value, value } objects
+type SnField = { display_value: string; value: string } | string;
+
 export interface SysDbObjectRecord {
-  sys_id: string;
-  name: string;
-  label: string;
-  super_class: { display_value: string; value: string } | string;
-  sys_scope: { display_value: string; value: string } | string;
-  is_extendable: string;
-  accessible_from: string;
-  number_ref: { display_value: string; value: string } | string;
+  sys_id: SnField;
+  name: SnField;
+  label: SnField;
+  super_class: SnField;
+  sys_scope: SnField;
+  is_extendable: SnField;
+  accessible_from: SnField;
+  number_ref: SnField;
 }
 
 export interface SysDictionaryRecord {
-  sys_id: string;
-  name: string;
-  element: string;
-  column_label: string;
-  internal_type: { display_value: string; value: string } | string;
-  max_length: string;
-  mandatory: string;
-  read_only: string;
-  active: string;
-  reference: { display_value: string; value: string } | string;
-  default_value: string;
-  display: string;
-  primary: string;
+  sys_id: SnField;
+  name: SnField;
+  element: SnField;
+  column_label: SnField;
+  internal_type: SnField;
+  max_length: SnField;
+  mandatory: SnField;
+  read_only: SnField;
+  active: SnField;
+  reference: SnField;
+  default_value: SnField;
+  display: SnField;
+  primary: SnField;
 }
 
 export interface ServiceNowApiResponse<T> {
