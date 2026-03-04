@@ -167,6 +167,9 @@ function TableNodeComponent({ id, data }: NodeProps) {
         className="!bg-muted-foreground !w-1.5 !h-1.5" />
       <Handle type="source" position={Position.Right} id="right"
         className="!bg-muted-foreground !w-1.5 !h-1.5" />
+      {/* Extra target on right side for reference edges from hierarchy peers */}
+      <Handle type="target" position={Position.Right} id="right-target"
+        className="!bg-muted-foreground !w-1.5 !h-1.5" style={{ top: '60%' }} />
 
       {/* Header */}
       <div className="px-3 py-2">

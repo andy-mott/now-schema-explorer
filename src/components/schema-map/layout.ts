@@ -6,8 +6,8 @@ const DETAILED_NODE_HEIGHT = 80;
 const MINI_NODE_WIDTH = 140;
 const MINI_NODE_HEIGHT = 36;
 
-const REF_COL_GAP = 16; // vertical gap between reference target nodes
-const REF_OFFSET = 120; // horizontal gap between hierarchy and reference column
+const REF_COL_GAP = 12; // vertical gap between reference target nodes
+const REF_OFFSET = 100; // horizontal gap between hierarchy and reference column
 
 function getNodeDimensions(node: Node) {
   const isMini = node.type === "miniNode";
@@ -64,9 +64,10 @@ export function computeLayout(
 
   dagre.layout(g);
 
-  // Apply dagre positions to hierarchy nodes and track bounding box
-  let minX = Infinity, maxX = -Infinity;
-  let minY = Infinity, maxY = -Infinity;
+  // Apply dagre positions to hierarchy nodes, track bounding box & center table position
+  let maxX = -Infinity;
+  let centerY = 0; // Y position of the center/focused table
+  let centerX = 0;
 
   const positionedHierarchy = hierarchyNodes.map((node) => {
     const nodeWithPosition = g.node(node.id);
@@ -76,52 +77,54 @@ export function computeLayout(
     const x = nodeWithPosition.x - width / 2;
     const y = nodeWithPosition.y - height / 2;
 
-    minX = Math.min(minX, x);
     maxX = Math.max(maxX, x + width);
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y + height);
+
+    // Track the center table's position for reference column alignment
+    if (node.data?.isCenter) {
+      centerY = nodeWithPosition.y; // dagre center Y
+      centerX = nodeWithPosition.x;
+    }
 
     return { ...node, position: { x, y } };
   });
 
   // --- Position reference target nodes in a column to the right ---
-  const hierarchyCenterY = (minY + maxY) / 2;
+  // Center them vertically around the focused table's Y position
   const totalRefHeight = refTargetNodes.reduce((sum, n) => {
     return sum + getNodeDimensions(n).height + REF_COL_GAP;
   }, -REF_COL_GAP); // subtract last gap
 
-  // TB: reference targets go to the right of the hierarchy
-  // LR: reference targets go below the hierarchy
-  let refX: number, refStartY: number;
-
   if (direction === "TB") {
-    refX = maxX + REF_OFFSET;
-    refStartY = hierarchyCenterY - totalRefHeight / 2;
+    const refX = maxX + REF_OFFSET;
+    const refStartY = centerY - totalRefHeight / 2;
+
+    let currentOffset = 0;
+    for (const node of refTargetNodes) {
+      const { height } = getNodeDimensions(node);
+      (node as Node & { position: { x: number; y: number } }).position = {
+        x: refX,
+        y: refStartY + currentOffset,
+      };
+      currentOffset += height + REF_COL_GAP;
+    }
   } else {
-    // LR layout: place refs below
-    const hierarchyCenterX = (minX + maxX) / 2;
-    refX = hierarchyCenterX - totalRefHeight / 2; // reuse as horizontal spread
-    refStartY = maxY + REF_OFFSET;
+    // LR layout: reference targets go below, centered on center table's X
+    const refY = maxX + REF_OFFSET; // reuse maxX as it's the max in the flow direction
+    const refStartX = centerX - totalRefHeight / 2;
+
+    let currentOffset = 0;
+    for (const node of refTargetNodes) {
+      const { height } = getNodeDimensions(node);
+      (node as Node & { position: { x: number; y: number } }).position = {
+        x: refStartX + currentOffset,
+        y: refY,
+      };
+      currentOffset += height + REF_COL_GAP;
+    }
   }
 
-  let currentOffset = 0;
-  const positionedRefs = refTargetNodes.map((node) => {
-    const { width, height } = getNodeDimensions(node);
-    let pos: { x: number; y: number };
-
-    if (direction === "TB") {
-      pos = { x: refX, y: refStartY + currentOffset };
-    } else {
-      pos = { x: refStartY + currentOffset, y: refX }; // swap axes for LR
-    }
-
-    currentOffset += height + REF_COL_GAP;
-
-    return { ...node, position: pos };
-  });
-
   return {
-    nodes: [...positionedHierarchy, ...positionedRefs],
+    nodes: [...positionedHierarchy, ...refTargetNodes],
     edges,
   };
 }

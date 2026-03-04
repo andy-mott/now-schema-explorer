@@ -41,6 +41,9 @@ function MiniNodeComponent({ data }: NodeProps) {
         className="!bg-transparent !border-0 !w-1 !h-1" />
       <Handle type="source" position={Position.Right} id="right"
         className="!bg-transparent !border-0 !w-1 !h-1" />
+      {/* Extra target on right side for reference edges from hierarchy peers */}
+      <Handle type="target" position={Position.Right} id="right-target"
+        className="!bg-transparent !border-0 !w-1 !h-1" style={{ top: '60%' }} />
 
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-muted-foreground truncate max-w-[140px] font-medium">

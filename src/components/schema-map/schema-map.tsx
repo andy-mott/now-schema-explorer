@@ -149,22 +149,44 @@ function SchemaMapInner() {
 
         // Convert to React Flow edges — assign handles based on layout direction
         // Inheritance flows with the direction (TB: top→bottom, LR: left→right)
-        // Reference edges flow perpendicular to the hierarchy direction
         const inhSource = direction === "TB" ? "bottom" : "right";
         const inhTarget = direction === "TB" ? "top" : "left";
-        const refSource = direction === "TB" ? "right" : "bottom";
-        const refTarget = direction === "TB" ? "left" : "top";
 
-        const rfEdges: Edge[] = data.edges.map((e, i) => ({
-          id: `${e.source}-${e.target}-${e.type}-${i}`,
-          source: e.source,
-          target: e.target,
-          type: e.type,
-          data: { type: e.type, label: e.label },
-          animated: e.type === "reference",
-          sourceHandle: e.type === "inheritance" ? inhSource : refSource,
-          targetHandle: e.type === "inheritance" ? inhTarget : refTarget,
-        }));
+        // Build set of reference-only target names for handle routing
+        const refTargetSet = new Set(
+          data.nodes.filter((n) => n.isReferenceTarget).map((n) => n.name)
+        );
+
+        const rfEdges: Edge[] = data.edges.map((e, i) => {
+          if (e.type === "inheritance") {
+            return {
+              id: `${e.source}-${e.target}-${e.type}-${i}`,
+              source: e.source,
+              target: e.target,
+              type: e.type,
+              data: { type: e.type, label: e.label },
+              animated: false,
+              sourceHandle: inhSource,
+              targetHandle: inhTarget,
+            };
+          }
+
+          // Reference edge: route depends on whether target is in hierarchy or to the side
+          const targetIsRefOnly = refTargetSet.has(e.target);
+
+          return {
+            id: `${e.source}-${e.target}-${e.type}-${i}`,
+            source: e.source,
+            target: e.target,
+            type: e.type,
+            data: { type: e.type, label: e.label },
+            animated: true,
+            // To ref-only nodes (positioned right): right → left
+            // To hierarchy nodes: right → right-target (loops out and back, no crossover)
+            sourceHandle: "right",
+            targetHandle: targetIsRefOnly ? "left" : "right-target",
+          };
+        });
 
         // Run layout
         const { nodes: layoutNodes, edges: layoutEdges } = computeLayout(
