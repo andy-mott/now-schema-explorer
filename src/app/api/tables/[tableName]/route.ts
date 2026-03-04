@@ -95,6 +95,18 @@ export async function GET(
     orderBy: { name: "asc" },
   });
 
+  // Deduplicate: table.columns already includes inherited columns (with correct
+  // definedOnTable). The ancestor fetch is a safety net for incomplete data.
+  // Keep the first occurrence of each element name to avoid double-rendering.
+  const seen = new Set<string>();
+  const dedupedColumns = [...table.columns, ...inheritedColumns].filter(
+    (col) => {
+      if (seen.has(col.element)) return false;
+      seen.add(col.element);
+      return true;
+    }
+  );
+
   return NextResponse.json({
     name: table.name,
     label: table.label,
@@ -106,7 +118,7 @@ export async function GET(
     ownColumnCount: table.ownColumnCount,
     totalColumnCount: table.totalColumnCount,
     childTableCount: table.childTableCount,
-    columns: [...table.columns, ...inheritedColumns],
+    columns: dedupedColumns,
     inheritanceChain,
     childTables: childTables.map((t) => t.name),
   });

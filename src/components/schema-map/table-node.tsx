@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
-import { Handle, Position } from "@xyflow/react";
+import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
 import {
   ChevronDown,
@@ -65,6 +65,7 @@ function TableNodeComponent({ id, data }: NodeProps) {
   const d = data as unknown as TableNodeData;
   const [columnGroups, setColumnGroups] = useState<ColumnGroup[]>([]);
   const [loadingColumns, setLoadingColumns] = useState(false);
+  const updateNodeInternals = useUpdateNodeInternals();
 
   // Use lifted expandedGroupNames from parent (SchemaMap) instead of local state
   const expandedGroupNames = d.expandedGroupNames || new Set<string>();
@@ -94,10 +95,12 @@ function TableNodeComponent({ id, data }: NodeProps) {
     const nodeRect = nodeEl.getBoundingClientRect();
     const els = nodeEl.querySelectorAll<HTMLElement>("[data-handle-id]");
     const offsets: { id: string; top: number }[] = [];
+    const seen = new Set<string>();
 
     els.forEach((el) => {
       const handleId = el.getAttribute("data-handle-id");
-      if (!handleId) return;
+      if (!handleId || seen.has(handleId)) return;
+      seen.add(handleId);
       const elRect = el.getBoundingClientRect();
       // Center of the element, relative to the node's top edge
       offsets.push({
@@ -107,8 +110,15 @@ function TableNodeComponent({ id, data }: NodeProps) {
     });
 
     setHandleOffsets(offsets);
+
+    // Tell React Flow to re-evaluate edges after handles are rendered.
+    // The rAF ensures the Handle components from the subsequent state-driven
+    // re-render are in the DOM before React Flow recalculates.
+    requestAnimationFrame(() => {
+      updateNodeInternals(id);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [d.expanded, columnGroups, expandedGroupsKey]);
+  }, [d.expanded, columnGroups, expandedGroupsKey, id, updateNodeInternals]);
 
   // --- Handlers ---
 
