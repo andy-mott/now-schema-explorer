@@ -1,11 +1,13 @@
 import type { NextConfig } from "next";
 import { execSync } from "child_process";
 
-let commitHash = "dev";
+let commitHash =
+  // Railway provides the full SHA at build time
+  process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || "dev";
 try {
   commitHash = execSync("git rev-parse --short HEAD").toString().trim();
 } catch {
-  // Not in a git repo (e.g., Docker build without .git)
+  // Not in a git repo (e.g., Railway build without .git) — keep Railway SHA or "dev"
 }
 
 const nextConfig: NextConfig = {
