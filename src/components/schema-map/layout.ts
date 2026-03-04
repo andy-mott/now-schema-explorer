@@ -1,8 +1,10 @@
 import dagre from "@dagrejs/dagre";
 import type { Node, Edge } from "@xyflow/react";
 
-const NODE_WIDTH = 240;
-const NODE_HEIGHT_COLLAPSED = 80;
+const DETAILED_NODE_WIDTH = 240;
+const DETAILED_NODE_HEIGHT = 80;
+const MINI_NODE_WIDTH = 140;
+const MINI_NODE_HEIGHT = 36;
 
 export function computeLayout(
   nodes: Node[],
@@ -13,29 +15,42 @@ export function computeLayout(
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: direction,
-    nodesep: 60,
-    ranksep: 80,
-    edgesep: 20,
+    nodesep: 40,
+    ranksep: 60,
+    edgesep: 15,
     marginx: 40,
     marginy: 40,
   });
 
-  // Add nodes to dagre graph
+  // Add nodes to dagre graph with appropriate sizes
   for (const node of nodes) {
-    const height = node.data?.expanded
-      ? NODE_HEIGHT_COLLAPSED + Math.min((node.data.columnCount as number) || 0, 8) * 24 + 16
-      : NODE_HEIGHT_COLLAPSED;
+    const isMini = node.type === "miniNode";
+    const width = isMini ? MINI_NODE_WIDTH : DETAILED_NODE_WIDTH;
+    let height = isMini ? MINI_NODE_HEIGHT : DETAILED_NODE_HEIGHT;
 
-    g.setNode(node.id, {
-      width: NODE_WIDTH,
-      height,
-    });
+    // If detailed node is expanded, increase height
+    if (!isMini && node.data?.expanded) {
+      height += Math.min((node.data.columnCount as number) || 0, 8) * 24 + 16;
+    }
+
+    g.setNode(node.id, { width, height });
   }
 
-  // Only use inheritance edges for layout to get a clean hierarchy
+  // Use inheritance edges for hierarchical layout
   for (const edge of edges) {
     if (edge.data?.type === "inheritance") {
       g.setEdge(edge.source, edge.target);
+    }
+  }
+
+  // Also add reference edges to dagre for positioning
+  // (so reference-only nodes don't overlap with the hierarchy)
+  for (const edge of edges) {
+    if (edge.data?.type === "reference") {
+      // Only add if not already present (dagre doesn't handle duplicates well)
+      if (!g.hasEdge(edge.source, edge.target)) {
+        g.setEdge(edge.source, edge.target);
+      }
     }
   }
 
@@ -47,11 +62,15 @@ export function computeLayout(
     const nodeWithPosition = g.node(node.id);
     if (!nodeWithPosition) return node;
 
+    const isMini = node.type === "miniNode";
+    const width = isMini ? MINI_NODE_WIDTH : DETAILED_NODE_WIDTH;
+    const height = nodeWithPosition.height || (isMini ? MINI_NODE_HEIGHT : DETAILED_NODE_HEIGHT);
+
     return {
       ...node,
       position: {
-        x: nodeWithPosition.x - NODE_WIDTH / 2,
-        y: nodeWithPosition.y - (nodeWithPosition.height || NODE_HEIGHT_COLLAPSED) / 2,
+        x: nodeWithPosition.x - width / 2,
+        y: nodeWithPosition.y - height / 2,
       },
     };
   });

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import type { GraphNode, GraphEdge, GraphResponse } from "@/types/graph";
 
-const MAX_NODES = 150;
+const MAX_NODES = 250;
+// How many extra levels of hierarchy to show as mini (gray) nodes beyond the detail depth
+const HIERARCHY_EXTRA_DEPTH = 4;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -50,16 +52,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Table not found" }, { status: 404 });
   }
 
-  // Collect neighborhood nodes
-  const includedNames = new Set<string>();
+  // Track distance from center for each included node
+  // distance 0 = center, 1 = parent/direct children, 2 = grandparent/grandchildren, etc.
+  const nodeDistance = new Map<string, number>();
   const edges: GraphEdge[] = [];
 
+  // Center table is distance 0
+  nodeDistance.set(centerTable, 0);
+
   // 1. Walk UP the inheritance chain (all ancestors)
+  // Each ancestor is 1 more distant than its child
   let current = centerTable;
+  let ancestorDist = 0;
   while (current) {
-    includedNames.add(current);
     const table = tableMap.get(current);
     if (table?.superClassName && tableMap.has(table.superClassName)) {
+      ancestorDist++;
+      const existingDist = nodeDistance.get(table.superClassName);
+      if (existingDist === undefined || ancestorDist < existingDist) {
+        nodeDistance.set(table.superClassName, ancestorDist);
+      }
       edges.push({
         source: table.superClassName,
         target: current,
@@ -71,40 +83,49 @@ export async function GET(request: Request) {
     }
   }
 
-  // 2. Walk DOWN children to specified depth using BFS
+  // 2. Walk DOWN children using BFS — go deeper than `depth` for gray boxes
+  const maxChildDepth = depth + HIERARCHY_EXTRA_DEPTH;
   const queue: { name: string; level: number }[] = [
     { name: centerTable, level: 0 },
   ];
 
-  while (queue.length > 0 && includedNames.size < MAX_NODES) {
+  while (queue.length > 0 && nodeDistance.size < MAX_NODES) {
     const item = queue.shift()!;
     const children = childrenMap.get(item.name) || [];
 
     for (const child of children) {
-      if (includedNames.size >= MAX_NODES) break;
+      if (nodeDistance.size >= MAX_NODES) break;
 
-      includedNames.add(child);
+      const childLevel = item.level + 1;
+      const existingDist = nodeDistance.get(child);
+      if (existingDist === undefined || childLevel < existingDist) {
+        nodeDistance.set(child, childLevel);
+      }
+
       edges.push({
         source: item.name,
         target: child,
         type: "inheritance",
       });
 
-      if (item.level + 1 < depth) {
-        queue.push({ name: child, level: item.level + 1 });
+      if (childLevel < maxChildDepth) {
+        queue.push({ name: child, level: childLevel });
       }
     }
   }
 
-  // 3. Optionally include reference targets
-  if (includeRefs && includedNames.size < MAX_NODES) {
-    // Get all reference columns for included tables
-    const includedArray = Array.from(includedNames);
+  // 3. Optionally include reference targets (only from detailed nodes)
+  if (includeRefs && nodeDistance.size < MAX_NODES) {
+    // Only get references from detailed nodes (within depth range)
+    const detailedNames = Array.from(nodeDistance.entries())
+      .filter(([, dist]) => dist <= depth)
+      .map(([name]) => name);
+
     const refColumns = await prisma.snapshotColumn.findMany({
       where: {
         table: {
           snapshotId,
-          name: { in: includedArray },
+          name: { in: detailedNames },
         },
         internalType: "reference",
         referenceTable: { not: null },
@@ -118,8 +139,9 @@ export async function GET(request: Request) {
 
     for (const col of refColumns) {
       if (!col.referenceTable) continue;
+      // Skip self-references
+      if (col.referenceTable === col.table.name) continue;
 
-      // Add edge even if target is already included (for reference visualization)
       edges.push({
         source: col.table.name,
         target: col.referenceTable,
@@ -127,22 +149,25 @@ export async function GET(request: Request) {
         label: col.element,
       });
 
-      // Add the referenced table as a node if not already included
+      // Add the referenced table as a mini node if not already included
       if (
-        !includedNames.has(col.referenceTable) &&
+        !nodeDistance.has(col.referenceTable) &&
         tableMap.has(col.referenceTable) &&
-        includedNames.size < MAX_NODES
+        nodeDistance.size < MAX_NODES
       ) {
-        includedNames.add(col.referenceTable);
+        // Reference targets are always beyond detail depth (never detailed)
+        nodeDistance.set(col.referenceTable, depth + 1);
       }
     }
   }
 
   // Build response
-  const truncated = includedNames.size >= MAX_NODES;
+  const truncated = nodeDistance.size >= MAX_NODES;
   const nodes: GraphNode[] = [];
 
-  for (const name of includedNames) {
+  const includedNames = new Set(nodeDistance.keys());
+
+  for (const [name, distance] of nodeDistance) {
     const t = tableMap.get(name);
     if (!t) continue;
 
@@ -162,6 +187,7 @@ export async function GET(request: Request) {
       isExtendable: t.isExtendable,
       isCenter: t.name === centerTable,
       isTruncated: includedChildren < totalChildren,
+      isDetailed: distance <= depth,
     });
   }
 

@@ -9,17 +9,15 @@ import {
 } from "@xyflow/react";
 import type { EdgeProps } from "@xyflow/react";
 
-function InheritanceEdgeComponent(props: EdgeProps) {
-  const {
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    style,
-  } = props;
-
+function InheritanceEdgeComponent({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+}: EdgeProps) {
   const [edgePath] = getSmoothStepPath({
     sourceX,
     sourceY,
@@ -34,26 +32,24 @@ function InheritanceEdgeComponent(props: EdgeProps) {
     <BaseEdge
       path={edgePath}
       style={{
-        stroke: "hsl(var(--muted-foreground))",
-        strokeWidth: 2,
+        stroke: "#94a3b8",
+        strokeWidth: 1.5,
         ...style,
       }}
     />
   );
 }
 
-function ReferenceEdgeComponent(props: EdgeProps) {
-  const {
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    style,
-    data,
-  } = props;
-
+function ReferenceEdgeComponent({
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  data,
+}: EdgeProps) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -70,7 +66,7 @@ function ReferenceEdgeComponent(props: EdgeProps) {
       <BaseEdge
         path={edgePath}
         style={{
-          stroke: "hsl(210, 70%, 55%)",
+          stroke: "#3b82f6",
           strokeWidth: 1.5,
           strokeDasharray: "6 3",
           ...style,

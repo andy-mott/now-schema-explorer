@@ -9,6 +9,8 @@ export interface GraphNode {
   isExtendable: boolean;
   isCenter: boolean;
   isTruncated: boolean;
+  /** True for the center table and tables within `depth` distance */
+  isDetailed: boolean;
 }
 
 export interface GraphEdge {

@@ -15,12 +15,14 @@ import "@xyflow/react/dist/style.css";
 import { useExplorerStore } from "@/stores/explorer-store";
 import type { GraphResponse } from "@/types/graph";
 import { TableNode } from "./table-node";
+import { MiniNode } from "./mini-node";
 import { InheritanceEdge, ReferenceEdge } from "./custom-edges";
 import { computeLayout } from "./layout";
 import { MapToolbar } from "./map-toolbar";
 
 const nodeTypes = {
   tableNode: TableNode,
+  miniNode: MiniNode,
 };
 
 const edgeTypes = {
@@ -52,99 +54,7 @@ function SchemaMapInner() {
     }
   }, [selectedTable, centerTable]);
 
-  // Fetch graph data
-  useEffect(() => {
-    if (!selectedSnapshotId || !centerTable) {
-      setNodes([]);
-      setEdges([]);
-      return;
-    }
-
-    // Cancel previous request
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setLoading(true);
-
-    const params = new URLSearchParams({
-      snapshotId: selectedSnapshotId,
-      centerTable,
-      depth: String(depth),
-      includeRefs: String(showRefs),
-    });
-
-    fetch(`/api/graph?${params}`, { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data: GraphResponse) => {
-        if (controller.signal.aborted) return;
-
-        // Convert to React Flow nodes
-        const rfNodes: Node[] = data.nodes.map((n) => ({
-          id: n.name,
-          type: "tableNode",
-          position: { x: 0, y: 0 }, // Will be computed by layout
-          data: {
-            label: n.label,
-            name: n.name,
-            scopeName: n.scopeName,
-            scopeLabel: n.scopeLabel,
-            ownColumnCount: n.ownColumnCount,
-            totalColumnCount: n.totalColumnCount,
-            childTableCount: n.childTableCount,
-            isCenter: n.isCenter,
-            isTruncated: n.isTruncated,
-            expanded: expandedNodes.has(n.name),
-            columnCount: n.ownColumnCount,
-            snapshotId: selectedSnapshotId,
-            onToggleExpand: handleToggleExpand,
-            onDoubleClick: handleRecenter,
-          },
-        }));
-
-        // Convert to React Flow edges
-        const rfEdges: Edge[] = data.edges.map((e, i) => ({
-          id: `${e.source}-${e.target}-${e.type}-${i}`,
-          source: e.source,
-          target: e.target,
-          type: e.type,
-          data: { type: e.type, label: e.label },
-          animated: e.type === "reference",
-        }));
-
-        // Run layout
-        const { nodes: layoutNodes, edges: layoutEdges } = computeLayout(
-          rfNodes,
-          rfEdges,
-          direction
-        );
-
-        setNodes(layoutNodes);
-        setEdges(layoutEdges);
-
-        // Fit view after layout
-        requestAnimationFrame(() => {
-          fitView({ padding: 0.15, duration: 300 });
-        });
-      })
-      .catch((err) => {
-        if (err.name !== "AbortError") {
-          console.error("Failed to fetch graph:", err);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSnapshotId, centerTable, depth, showRefs, direction]);
-
-  // Handlers passed to nodes
+  // Handlers passed to nodes — defined before the effect that uses them
   const handleToggleExpand = useCallback(
     (nodeId: string) => {
       setExpandedNodes((prev) => {
@@ -185,6 +95,106 @@ function SchemaMapInner() {
     [setSelectedTable]
   );
 
+  // Fetch graph data
+  useEffect(() => {
+    if (!selectedSnapshotId || !centerTable) {
+      setNodes([]);
+      setEdges([]);
+      return;
+    }
+
+    // Cancel previous request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setLoading(true);
+
+    const params = new URLSearchParams({
+      snapshotId: selectedSnapshotId,
+      centerTable,
+      depth: String(depth),
+      includeRefs: String(showRefs),
+    });
+
+    fetch(`/api/graph?${params}`, { signal: controller.signal })
+      .then((r) => r.json())
+      .then((data: GraphResponse) => {
+        if (controller.signal.aborted) return;
+
+        // Convert to React Flow nodes — use tableNode for detailed, miniNode for others
+        const rfNodes: Node[] = data.nodes.map((n) => ({
+          id: n.name,
+          type: n.isDetailed ? "tableNode" : "miniNode",
+          position: { x: 0, y: 0 }, // Will be computed by layout
+          data: {
+            label: n.label,
+            name: n.name,
+            scopeName: n.scopeName,
+            scopeLabel: n.scopeLabel,
+            ownColumnCount: n.ownColumnCount,
+            totalColumnCount: n.totalColumnCount,
+            childTableCount: n.childTableCount,
+            isCenter: n.isCenter,
+            isTruncated: n.isTruncated,
+            isDetailed: n.isDetailed,
+            expanded: expandedNodes.has(n.name),
+            columnCount: n.ownColumnCount,
+            snapshotId: selectedSnapshotId,
+            onToggleExpand: handleToggleExpand,
+            onDoubleClick: handleRecenter,
+          },
+        }));
+
+        // Convert to React Flow edges
+        const rfEdges: Edge[] = data.edges.map((e, i) => ({
+          id: `${e.source}-${e.target}-${e.type}-${i}`,
+          source: e.source,
+          target: e.target,
+          type: e.type,
+          data: { type: e.type, label: e.label },
+          animated: e.type === "reference",
+          // For reference edges, use side handles
+          ...(e.type === "reference"
+            ? {
+                sourceHandle: "right-source",
+                targetHandle: "left-target",
+              }
+            : {}),
+        }));
+
+        // Run layout
+        const { nodes: layoutNodes, edges: layoutEdges } = computeLayout(
+          rfNodes,
+          rfEdges,
+          direction
+        );
+
+        setNodes(layoutNodes);
+        setEdges(layoutEdges);
+
+        // Fit view after layout
+        requestAnimationFrame(() => {
+          fitView({ padding: 0.15, duration: 300 });
+        });
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") {
+          console.error("Failed to fetch graph:", err);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSnapshotId, centerTable, depth, showRefs, direction]);
+
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       setSelectedTable(node.id);
@@ -219,10 +229,7 @@ function SchemaMapInner() {
             markerHeight="8"
             orient="auto-start-reverse"
           >
-            <path
-              d="M 0 0 L 10 5 L 0 10 z"
-              fill="hsl(210, 70%, 55%)"
-            />
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" />
           </marker>
         </defs>
       </svg>
@@ -276,10 +283,12 @@ function SchemaMapInner() {
           onNodeClick={handleNodeClick}
           fitView
           fitViewOptions={{ padding: 0.15 }}
-          minZoom={0.1}
+          minZoom={0.05}
           maxZoom={2}
           proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ type: "inheritance" }}
+          defaultEdgeOptions={{
+            type: "inheritance",
+          }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <MiniMap
