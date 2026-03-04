@@ -280,7 +280,7 @@ function TableNodeComponent({ id, data }: NodeProps) {
 
       {/* Expanded columns grouped by inheritance level */}
       {d.expanded && (
-        <div className="border-t max-h-[400px] overflow-y-auto">
+        <div className={`border-t ${d.isCenter ? "" : "max-h-[400px] overflow-y-auto"}`}>
           {loadingColumns ? (
             <div className="text-xs text-muted-foreground py-2 px-3">
               Loading columns...

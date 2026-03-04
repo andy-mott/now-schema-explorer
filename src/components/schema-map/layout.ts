@@ -15,7 +15,23 @@ function getNodeDimensions(node: Node) {
   let height = isMini ? MINI_NODE_HEIGHT : DETAILED_NODE_HEIGHT;
 
   if (!isMini && node.data?.expanded) {
-    height += Math.min((node.data.columnCount as number) || 0, 8) * 24 + 16;
+    const ownCols = (node.data.columnCount as number) || 0;
+    const totalCols = (node.data.totalColumnCount as number) || 0;
+
+    if (node.data.isCenter) {
+      // Center node has no scroll container — estimate full expanded height.
+      // Own columns are auto-expanded (capped at 30 display rows per group).
+      const visibleOwnRows = Math.min(ownCols, 30);
+      // Inherited column groups show as collapsed headers by default.
+      const inheritedGroups =
+        totalCols > ownCols
+          ? Math.max(1, Math.ceil((totalCols - ownCols) / 25))
+          : 0;
+      height += visibleOwnRows * 22 + inheritedGroups * 30 + 60;
+    } else {
+      // Non-center nodes have a 400px max-height scroll container.
+      height += Math.min(totalCols * 22 + 16, 400);
+    }
   }
 
   return { width, height };

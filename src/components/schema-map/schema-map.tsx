@@ -30,6 +30,9 @@ const edgeTypes = {
   reference: ReferenceEdge,
 };
 
+/** Shared empty set so nodes without expanded groups don't create new refs */
+const EMPTY_GROUP_NAMES = new Set<string>();
+
 // ---------------------------------------------------------------------------
 // Edge-building helpers
 // ---------------------------------------------------------------------------
@@ -146,7 +149,6 @@ function SchemaMapInner() {
     useExplorerStore();
   const { fitView } = useReactFlow();
 
-  const [nodes, setNodes] = useState<Node[]>([]);
   const [graphData, setGraphData] = useState<GraphResponse | null>(null);
   const [centerTable, setCenterTable] = useState<string | null>(null);
   const [depth, setDepth] = useState(2);
@@ -187,24 +189,6 @@ function SchemaMapInner() {
       }
       return next;
     });
-
-    // Update node data to trigger re-render
-    // (expandedGroups & columnsLoadedNodes are preserved so edges snap
-    //  back to field-level handles immediately on re-expand)
-    setNodes((prev) =>
-      prev.map((n) => {
-        if (n.id === nodeId) {
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              expanded: !n.data.expanded,
-            },
-          };
-        }
-        return n;
-      })
-    );
   }, []);
 
   const handleToggleGroup = useCallback(
@@ -218,20 +202,6 @@ function SchemaMapInner() {
           groups.add(groupName);
         }
         next.set(nodeId, groups);
-
-        // Also update node data so TableNode re-renders with correct state
-        setNodes((prevNodes) =>
-          prevNodes.map((n) => {
-            if (n.id === nodeId) {
-              return {
-                ...n,
-                data: { ...n.data, expandedGroupNames: new Set(groups) },
-              };
-            }
-            return n;
-          })
-        );
-
         return next;
       });
     },
@@ -243,25 +213,13 @@ function SchemaMapInner() {
       setColumnsLoadedNodes((prev) => new Set([...prev, nodeId]));
 
       // Auto-expand own columns group
-      const groups = new Set([ownTableName]);
       setExpandedGroups((prev) => {
         const next = new Map(prev);
+        const groups = new Set(next.get(nodeId) || []);
+        groups.add(ownTableName);
         next.set(nodeId, groups);
         return next;
       });
-
-      // Update node data
-      setNodes((prevNodes) =>
-        prevNodes.map((n) => {
-          if (n.id === nodeId) {
-            return {
-              ...n,
-              data: { ...n.data, expandedGroupNames: new Set(groups) },
-            };
-          }
-          return n;
-        })
-      );
     },
     []
   );
@@ -282,7 +240,6 @@ function SchemaMapInner() {
   // -----------------------------------------------------------------------
   useEffect(() => {
     if (!selectedSnapshotId || !centerTable) {
-      setNodes([]);
       setGraphData(null);
       return;
     }
@@ -305,65 +262,7 @@ function SchemaMapInner() {
       .then((r) => r.json())
       .then((data: GraphResponse) => {
         if (controller.signal.aborted) return;
-
-        // Convert to React Flow nodes
-        const rfNodes: Node[] = data.nodes.map((n) => ({
-          id: n.name,
-          type: n.isDetailed ? "tableNode" : "miniNode",
-          position: { x: 0, y: 0 },
-          data: {
-            label: n.label,
-            name: n.name,
-            scopeName: n.scopeName,
-            scopeLabel: n.scopeLabel,
-            ownColumnCount: n.ownColumnCount,
-            totalColumnCount: n.totalColumnCount,
-            childTableCount: n.childTableCount,
-            isCenter: n.isCenter,
-            isTruncated: n.isTruncated,
-            isDetailed: n.isDetailed,
-            isReferenceTarget: n.isReferenceTarget,
-            expanded: expandedNodes.has(n.name),
-            columnCount: n.ownColumnCount,
-            snapshotId: selectedSnapshotId,
-            onToggleExpand: handleToggleExpand,
-            onDoubleClick: handleRecenter,
-            onToggleGroup: handleToggleGroup,
-            onColumnsLoaded: handleColumnsLoaded,
-            expandedGroupNames:
-              expandedGroups.get(n.name) || new Set<string>(),
-          },
-        }));
-
-        // Build temporary edges for layout (only inheritance drives dagre)
-        const inhSource = direction === "TB" ? "bottom" : "right";
-        const inhTarget = direction === "TB" ? "top" : "left";
-        const layoutEdges: Edge[] = data.edges
-          .filter((e) => e.type === "inheritance")
-          .map((e, i) => ({
-            id: `${e.source}-${e.target}-inh-${i}`,
-            source: e.source,
-            target: e.target,
-            type: "inheritance",
-            data: { type: "inheritance" },
-            sourceHandle: inhSource,
-            targetHandle: inhTarget,
-          }));
-
-        // Run layout (only uses inheritance edges for positioning)
-        const { nodes: layoutNodes } = computeLayout(
-          rfNodes,
-          layoutEdges,
-          direction
-        );
-
-        setNodes(layoutNodes);
         setGraphData(data);
-
-        // Fit view after layout
-        requestAnimationFrame(() => {
-          fitView({ padding: 0.15, duration: 300 });
-        });
       })
       .catch((err) => {
         if (err.name !== "AbortError") {
@@ -381,6 +280,87 @@ function SchemaMapInner() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSnapshotId, centerTable, depth, showRefs, direction]);
+
+  // -----------------------------------------------------------------------
+  // Compute nodes with layout — reactive to graph data + expansion state.
+  // When a node expands/collapses, dagre re-runs with updated height
+  // estimates so surrounding nodes shift to avoid overlap.
+  // -----------------------------------------------------------------------
+  const nodes = useMemo(() => {
+    if (!graphData || !selectedSnapshotId) return [];
+
+    const rfNodes: Node[] = graphData.nodes.map((n) => ({
+      id: n.name,
+      type: n.isDetailed ? "tableNode" : "miniNode",
+      position: { x: 0, y: 0 },
+      data: {
+        label: n.label,
+        name: n.name,
+        scopeName: n.scopeName,
+        scopeLabel: n.scopeLabel,
+        ownColumnCount: n.ownColumnCount,
+        totalColumnCount: n.totalColumnCount,
+        childTableCount: n.childTableCount,
+        isCenter: n.isCenter,
+        isTruncated: n.isTruncated,
+        isDetailed: n.isDetailed,
+        isReferenceTarget: n.isReferenceTarget,
+        expanded: expandedNodes.has(n.name),
+        columnCount: n.ownColumnCount,
+        snapshotId: selectedSnapshotId,
+        onToggleExpand: handleToggleExpand,
+        onDoubleClick: handleRecenter,
+        onToggleGroup: handleToggleGroup,
+        onColumnsLoaded: handleColumnsLoaded,
+        expandedGroupNames:
+          expandedGroups.get(n.name) || EMPTY_GROUP_NAMES,
+      },
+    }));
+
+    // Build layout edges (only inheritance for dagre positioning)
+    const inhSource = direction === "TB" ? "bottom" : "right";
+    const inhTarget = direction === "TB" ? "top" : "left";
+    const layoutEdges: Edge[] = graphData.edges
+      .filter((e) => e.type === "inheritance")
+      .map((e, i) => ({
+        id: `${e.source}-${e.target}-inh-${i}`,
+        source: e.source,
+        target: e.target,
+        type: "inheritance",
+        data: { type: "inheritance" },
+        sourceHandle: inhSource,
+        targetHandle: inhTarget,
+      }));
+
+    // Run dagre layout (node heights adapt to expansion state)
+    const { nodes: layoutNodes } = computeLayout(
+      rfNodes,
+      layoutEdges,
+      direction
+    );
+
+    return layoutNodes;
+  }, [
+    graphData,
+    selectedSnapshotId,
+    expandedNodes,
+    expandedGroups,
+    direction,
+    handleToggleExpand,
+    handleRecenter,
+    handleToggleGroup,
+    handleColumnsLoaded,
+  ]);
+
+  // Fit view only when new graph data loads (not on expand/collapse)
+  useEffect(() => {
+    if (graphData && nodes.length > 0) {
+      requestAnimationFrame(() => {
+        fitView({ padding: 0.15, duration: 300 });
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphData, fitView]);
 
   // -----------------------------------------------------------------------
   // Compute edges reactively from graph data + expansion state
