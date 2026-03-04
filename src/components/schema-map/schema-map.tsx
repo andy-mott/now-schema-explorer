@@ -327,6 +327,7 @@ function SchemaMapInner() {
         isTruncated: n.isTruncated,
         isDetailed: n.isDetailed,
         isReferenceTarget: n.isReferenceTarget,
+        ancestorOwnCounts: n.ancestorOwnCounts,
         expanded: expandedNodes.has(n.name),
         columnCount: n.ownColumnCount,
         snapshotId: selectedSnapshotId,

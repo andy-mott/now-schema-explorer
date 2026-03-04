@@ -11,6 +11,14 @@ import {
   Minus,
   Plus,
 } from "lucide-react";
+import {
+  HEADER_HEIGHT,
+  BORDER_T,
+  GROUP_HEADER_H,
+  GROUP_PAD,
+  FIELD_ROW_H,
+  MAX_VISIBLE_ROWS,
+} from "./constants";
 
 // Deterministic color from scope name
 function scopeColor(scope: string | null): string {
@@ -74,14 +82,8 @@ function TableNodeComponent({ id, data }: NodeProps) {
 
   // --- Pre-computed handle positions ---
   // Compute handle positions arithmetically from the column group structure
-  // using known CSS pixel constants. This avoids the two-render-cycle timing
+  // using shared CSS pixel constants. This avoids the two-render-cycle timing
   // issues of DOM measurement (useLayoutEffect + getBoundingClientRect).
-  const HEADER_HEIGHT = 75;   // px-3 py-2, label + name + metadata row
-  const BORDER_T = 1;         // border-t on expanded section
-  const GROUP_HEADER_H = 29;  // py-1.5 + text-xs + border-b
-  const GROUP_PAD = 4;        // py-1 on expanded group container
-  const FIELD_ROW_H = 20;     // py-0.5 + text-xs
-
   const handlePositions = useMemo(() => {
     if (!d.expanded || columnGroups.length === 0) return [];
 
@@ -103,7 +105,7 @@ function TableNodeComponent({ id, data }: NodeProps) {
       if (expandedGroupNames.has(group.tableName)) {
         offset += GROUP_PAD; // top padding
 
-        const visibleCols = group.columns.slice(0, 30);
+        const visibleCols = group.columns.slice(0, MAX_VISIBLE_ROWS);
         for (const col of visibleCols) {
           if (col.referenceTable) {
             positions.push({
@@ -115,7 +117,7 @@ function TableNodeComponent({ id, data }: NodeProps) {
         }
 
         // "+N more..." row
-        if (group.columns.length > 30) {
+        if (group.columns.length > MAX_VISIBLE_ROWS) {
           offset += FIELD_ROW_H;
         }
 
@@ -348,7 +350,7 @@ function TableNodeComponent({ id, data }: NodeProps) {
                       }`}
                     >
                       <ul className="space-y-0">
-                        {group.columns.slice(0, 30).map((col) => {
+                        {group.columns.slice(0, MAX_VISIBLE_ROWS).map((col) => {
                           const isRef = col.referenceTable != null;
                           const isHighlighted = isRef && d.highlightedRefField === col.element;
                           return (
@@ -392,9 +394,9 @@ function TableNodeComponent({ id, data }: NodeProps) {
                             </li>
                           );
                         })}
-                        {group.columns.length > 30 && (
+                        {group.columns.length > MAX_VISIBLE_ROWS && (
                           <li className="text-[10px] text-muted-foreground py-0.5 px-1">
-                            +{group.columns.length - 30} more...
+                            +{group.columns.length - MAX_VISIBLE_ROWS} more...
                           </li>
                         )}
                       </ul>

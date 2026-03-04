@@ -13,6 +13,8 @@ export interface GraphNode {
   isDetailed: boolean;
   /** True if this node exists only because it's a reference target (not in the hierarchy) */
   isReferenceTarget: boolean;
+  /** Per-ancestor own-column counts for accurate layout height. Center table only. */
+  ancestorOwnCounts?: { name: string; ownColumnCount: number }[];
 }
 
 export interface GraphEdge {

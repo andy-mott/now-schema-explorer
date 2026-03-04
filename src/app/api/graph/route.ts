@@ -72,16 +72,25 @@ export async function GET(request: Request) {
 
   // 1. Walk UP the inheritance chain (all ancestors)
   // Each ancestor is 1 more distant than its child
+  // Also collect per-ancestor column counts for layout height estimation
+  const ancestorOwnCounts: { name: string; ownColumnCount: number }[] = [
+    { name: centerTable, ownColumnCount: center.ownColumnCount },
+  ];
   let current = centerTable;
   let ancestorDist = 0;
   while (current) {
     const table = tableMap.get(current);
     if (table?.superClassName && tableMap.has(table.superClassName)) {
       ancestorDist++;
+      const ancestor = tableMap.get(table.superClassName)!;
       const existingDist = nodeDistance.get(table.superClassName);
       if (existingDist === undefined || ancestorDist < existingDist) {
         nodeDistance.set(table.superClassName, ancestorDist);
       }
+      ancestorOwnCounts.push({
+        name: ancestor.name,
+        ownColumnCount: ancestor.ownColumnCount,
+      });
       edges.push({
         source: table.superClassName,
         target: current,
@@ -222,6 +231,8 @@ export async function GET(request: Request) {
       isTruncated: includedChildren < totalChildren,
       isDetailed: distance <= depth,
       isReferenceTarget: referenceTargetNames.has(t.name),
+      ancestorOwnCounts:
+        t.name === centerTable ? ancestorOwnCounts : undefined,
     });
   }
 

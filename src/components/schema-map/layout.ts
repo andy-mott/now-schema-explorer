@@ -1,5 +1,13 @@
 import dagre from "@dagrejs/dagre";
 import type { Node, Edge } from "@xyflow/react";
+import {
+  HEADER_HEIGHT,
+  BORDER_T,
+  GROUP_HEADER_H,
+  GROUP_PAD,
+  FIELD_ROW_H,
+  MAX_VISIBLE_ROWS,
+} from "./constants";
 
 const DETAILED_NODE_WIDTH = 240;
 const DETAILED_NODE_HEIGHT = 80;
@@ -7,7 +15,7 @@ const MINI_NODE_WIDTH = 140;
 const MINI_NODE_HEIGHT = 36;
 
 const REF_COL_GAP = 12; // vertical gap between reference target nodes
-const REF_OFFSET = 220; // horizontal gap between hierarchy and reference column (room for labels)
+const REF_OFFSET = 320; // horizontal gap between hierarchy and reference column
 
 function getNodeDimensions(node: Node) {
   const isMini = node.type === "miniNode";
@@ -15,22 +23,51 @@ function getNodeDimensions(node: Node) {
   let height = isMini ? MINI_NODE_HEIGHT : DETAILED_NODE_HEIGHT;
 
   if (!isMini && node.data?.expanded) {
-    const ownCols = (node.data.columnCount as number) || 0;
-    const totalCols = (node.data.totalColumnCount as number) || 0;
-
     if (node.data.isCenter) {
-      // Center node has no scroll container — estimate full expanded height.
-      // Own columns are auto-expanded (capped at 30 display rows per group).
-      const visibleOwnRows = Math.min(ownCols, 30);
-      // Inherited column groups show as collapsed headers by default.
-      const inheritedGroups =
-        totalCols > ownCols
-          ? Math.max(1, Math.ceil((totalCols - ownCols) / 25))
-          : 0;
-      height += visibleOwnRows * 22 + inheritedGroups * 30 + 60;
+      // Center node has no scroll container — compute precise height using
+      // per-ancestor column counts and expanded group state.
+      height = HEADER_HEIGHT + BORDER_T;
+
+      const ancestorOwnCounts = node.data.ancestorOwnCounts as
+        | { name: string; ownColumnCount: number }[]
+        | undefined;
+      const expandedGroupNames =
+        (node.data.expandedGroupNames as Set<string> | undefined) ||
+        new Set<string>();
+
+      if (ancestorOwnCounts && ancestorOwnCounts.length > 0) {
+        // Precise calculation: we know each group's column count
+        for (const group of ancestorOwnCounts) {
+          height += GROUP_HEADER_H;
+          if (expandedGroupNames.has(group.name)) {
+            const visibleRows = Math.min(
+              group.ownColumnCount,
+              MAX_VISIBLE_ROWS
+            );
+            height += GROUP_PAD * 2 + visibleRows * FIELD_ROW_H;
+            if (group.ownColumnCount > MAX_VISIBLE_ROWS) {
+              height += FIELD_ROW_H; // "+N more..." row
+            }
+          }
+        }
+      } else {
+        // Fallback: no ancestor data yet, rough estimate
+        const ownCols = (node.data.columnCount as number) || 0;
+        const totalCols = (node.data.totalColumnCount as number) || 0;
+        const numGroups =
+          totalCols > ownCols
+            ? Math.max(1, Math.ceil((totalCols - ownCols) / 25)) + 1
+            : 1;
+        height += numGroups * GROUP_HEADER_H;
+        // Assume own group is auto-expanded
+        height +=
+          GROUP_PAD * 2 +
+          Math.min(ownCols, MAX_VISIBLE_ROWS) * FIELD_ROW_H;
+      }
     } else {
       // Non-center nodes have a 400px max-height scroll container.
-      height += Math.min(totalCols * 22 + 16, 400);
+      const totalCols = (node.data.totalColumnCount as number) || 0;
+      height += Math.min(totalCols * FIELD_ROW_H + 16, 400);
     }
   }
 
@@ -54,13 +91,17 @@ export function computeLayout(
     }
   }
 
+  // Increase rank spacing when center is expanded (tall) so children aren't cramped
+  const centerNode = hierarchyNodes.find((n) => n.data?.isCenter);
+  const centerIsExpanded = centerNode?.data?.expanded === true;
+
   // --- Layout hierarchy nodes with dagre ---
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: direction,
     nodesep: 40,
-    ranksep: 60,
+    ranksep: centerIsExpanded ? 100 : 60,
     edgesep: 15,
     marginx: 40,
     marginy: 40,
@@ -84,6 +125,7 @@ export function computeLayout(
   let maxX = -Infinity;
   let centerY = 0; // Y position of the center/focused table
   let centerX = 0;
+  let centerNodeHeight = DETAILED_NODE_HEIGHT;
 
   const positionedHierarchy = hierarchyNodes.map((node) => {
     const nodeWithPosition = g.node(node.id);
@@ -99,20 +141,22 @@ export function computeLayout(
     if (node.data?.isCenter) {
       centerY = nodeWithPosition.y; // dagre center Y
       centerX = nodeWithPosition.x;
+      centerNodeHeight = height;
     }
 
     return { ...node, position: { x, y } };
   });
 
   // --- Position reference target nodes in a column to the right ---
-  // Center them vertically around the focused table's Y position
+  // Align top of ref column with top of center node (not centered on midpoint)
   const totalRefHeight = refTargetNodes.reduce((sum, n) => {
     return sum + getNodeDimensions(n).height + REF_COL_GAP;
   }, -REF_COL_GAP); // subtract last gap
 
   if (direction === "TB") {
     const refX = maxX + REF_OFFSET;
-    const refStartY = centerY - totalRefHeight / 2;
+    const centerTopY = centerY - centerNodeHeight / 2;
+    const refStartY = centerTopY;
 
     let currentOffset = 0;
     for (const node of refTargetNodes) {
@@ -125,7 +169,7 @@ export function computeLayout(
     }
   } else {
     // LR layout: reference targets go below, centered on center table's X
-    const refY = maxX + REF_OFFSET; // reuse maxX as it's the max in the flow direction
+    const refY = maxX + REF_OFFSET;
     const refStartX = centerX - totalRefHeight / 2;
 
     let currentOffset = 0;
