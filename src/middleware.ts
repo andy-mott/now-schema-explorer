@@ -1,37 +1,51 @@
-import { auth } from "@/lib/auth";
+import { auth, authEnabled } from "@/lib/auth";
 import { NextResponse } from "next/server";
 
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
-  const session = req.auth;
+// When auth is not configured, allow all requests through
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const middleware = authEnabled
+  ? (auth as any)((req: any) => {
+      const { pathname } = req.nextUrl;
+      const session = req.auth;
 
-  const isAdminPage = pathname.startsWith("/admin");
-  const isAdminApi = pathname.startsWith("/api/");
+      const isAdminPage = pathname.startsWith("/admin");
+      const isAdminApi = pathname.startsWith("/api/");
 
-  if (!isAdminPage && !isAdminApi) {
-    return NextResponse.next();
-  }
+      if (!isAdminPage && !isAdminApi) {
+        return NextResponse.next();
+      }
 
-  // Not authenticated
-  if (!session?.user) {
-    if (isAdminApi) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    const signInUrl = new URL("/api/auth/signin", req.url);
-    signInUrl.searchParams.set("callbackUrl", req.url);
-    return NextResponse.redirect(signInUrl);
-  }
+      // Not authenticated
+      if (!session?.user) {
+        if (isAdminApi) {
+          return NextResponse.json(
+            { error: "Unauthorized" },
+            { status: 401 }
+          );
+        }
+        const signInUrl = new URL("/api/auth/signin", req.url);
+        signInUrl.searchParams.set("callbackUrl", req.url);
+        return NextResponse.redirect(signInUrl);
+      }
 
-  // Authenticated but not admin
-  if (!session.user.isAdmin) {
-    if (isAdminApi) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return NextResponse.redirect(new URL("/", req.url));
-  }
+      // Authenticated but not admin
+      if (!session.user.isAdmin) {
+        if (isAdminApi) {
+          return NextResponse.json(
+            { error: "Forbidden" },
+            { status: 403 }
+          );
+        }
+        return NextResponse.redirect(new URL("/", req.url));
+      }
 
-  return NextResponse.next();
-});
+      return NextResponse.next();
+    })
+  : function middleware() {
+      return NextResponse.next();
+    };
+
+export default middleware;
 
 export const config = {
   matcher: [
