@@ -42,6 +42,18 @@ export async function GET(request: Request) {
     where.definition = null;
   }
 
+  const validated = searchParams.get("validated");
+  if (validated === "true") {
+    where.validationStatus = "VALIDATED";
+  } else if (validated === "false") {
+    where.validationStatus = "DRAFT";
+  }
+
+  const source = searchParams.get("source");
+  if (source) {
+    where.definitionSource = source as Prisma.EnumDefinitionSourceNullableFilter["equals"];
+  }
+
   const [entries, total] = await Promise.all([
     prisma.catalogEntry.findMany({
       where,

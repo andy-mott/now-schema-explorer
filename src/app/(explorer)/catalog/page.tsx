@@ -37,13 +37,23 @@ interface CatalogEntrySummary {
   label: string;
   internalType: string;
   definition: string | null;
+  definitionSource: string | null;
+  validationStatus: string;
   steward: { id: string; username: string; displayName: string | null } | null;
   createdAt: string;
   updatedAt: string;
 }
 
 interface CatalogEntryDetail {
-  entry: CatalogEntrySummary;
+  entry: CatalogEntrySummary & {
+    definitionSourceDetail: string | null;
+    validatedAt: string | null;
+    validatedBy: {
+      id: string;
+      username: string;
+      displayName: string | null;
+    } | null;
+  };
   sourceSnapshot: { id: string; label: string; createdAt: string };
   linkedSnapshots: {
     id: string;
@@ -60,6 +70,8 @@ interface CatalogStats {
   undefinedCount: number;
   stewardedCount: number;
   tableCount: number;
+  validatedCount: number;
+  draftWithDefinitionCount: number;
 }
 
 interface Pagination {
@@ -68,6 +80,12 @@ interface Pagination {
   total: number;
   totalPages: number;
 }
+
+const SOURCE_LABELS: Record<string, string> = {
+  MANUAL: "Manual",
+  SYS_DOCUMENTATION: "sys_documentation",
+  EXCEL_UPLOAD: "Excel",
+};
 
 export default function CatalogPage() {
   const [entries, setEntries] = useState<CatalogEntrySummary[]>([]);
@@ -80,6 +98,8 @@ export default function CatalogPage() {
   const [tableFilter, setTableFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [definedFilter, setDefinedFilter] = useState<string>("");
+  const [validatedFilter, setValidatedFilter] = useState<string>("");
+  const [sourceFilter, setSourceFilter] = useState<string>("");
   const [page, setPage] = useState(1);
 
   // Detail sheet
@@ -94,32 +114,43 @@ export default function CatalogPage() {
   const [editDefinition, setEditDefinition] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Bulk selection state
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkValidating, setBulkValidating] = useState(false);
+
   // Distinct table names and types for filter dropdowns
   const [tableNames, setTableNames] = useState<string[]>([]);
   const [fieldTypes, setFieldTypes] = useState<string[]>([]);
 
   // Fetch user session to determine edit permissions
   const [canEdit, setCanEdit] = useState(false);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/session")
       .then((r) => r.json())
       .then((session) => {
         const role = session?.user?.role;
-        setCanEdit(
-          role === "STEWARD" || role === "ADMIN"
-        );
+        setUserRole(role || null);
+        setCanEdit(role === "STEWARD" || role === "ADMIN");
       })
-      .catch(() => setCanEdit(false));
+      .catch(() => {
+        setCanEdit(false);
+        setUserRole(null);
+      });
   }, []);
 
   // Fetch stats
-  useEffect(() => {
+  const refreshStats = useCallback(() => {
     fetch("/api/catalog/stats")
       .then((r) => r.json())
       .then(setStats)
       .catch(console.error);
   }, []);
+
+  useEffect(() => {
+    refreshStats();
+  }, [refreshStats]);
 
   // Fetch entries
   const fetchEntries = useCallback(() => {
@@ -129,6 +160,8 @@ export default function CatalogPage() {
     if (tableFilter) params.set("table", tableFilter);
     if (typeFilter) params.set("type", typeFilter);
     if (definedFilter) params.set("defined", definedFilter);
+    if (validatedFilter) params.set("validated", validatedFilter);
+    if (sourceFilter) params.set("source", sourceFilter);
     params.set("page", String(page));
     params.set("limit", "50");
 
@@ -137,22 +170,10 @@ export default function CatalogPage() {
       .then((data) => {
         setEntries(data.entries);
         setPagination(data.pagination);
-
-        // Build filter options from first fetch
-        if (tableNames.length === 0 && data.entries.length > 0) {
-          // Fetch all distinct table names and types from stats
-          fetch("/api/catalog?limit=1")
-            .then(() => {
-              // Get distinct values via a separate call
-              return fetch("/api/catalog?limit=100&page=1");
-            })
-            .then((r) => r.json())
-            .catch(console.error);
-        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [search, tableFilter, typeFilter, definedFilter, page, tableNames.length]);
+  }, [search, tableFilter, typeFilter, definedFilter, validatedFilter, sourceFilter, page]);
 
   useEffect(() => {
     fetchEntries();
@@ -212,6 +233,8 @@ export default function CatalogPage() {
               entry: {
                 ...prev.entry,
                 definition: updated.definition,
+                definitionSource: updated.definitionSource,
+                validationStatus: updated.validationStatus,
               },
             }
           : prev
@@ -219,7 +242,12 @@ export default function CatalogPage() {
       setEntries((prev) =>
         prev.map((e) =>
           e.id === selectedEntry.id
-            ? { ...e, definition: updated.definition }
+            ? {
+                ...e,
+                definition: updated.definition,
+                definitionSource: updated.definitionSource,
+                validationStatus: updated.validationStatus,
+              }
             : e
         )
       );
@@ -228,6 +256,109 @@ export default function CatalogPage() {
       console.error(err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Single-entry validate/unvalidate
+  const handleToggleValidation = async () => {
+    if (!selectedEntry || !detail) return;
+    const newStatus =
+      detail.entry.validationStatus === "VALIDATED" ? "unvalidate" : "validate";
+
+    try {
+      const res = await fetch("/api/catalog/validate", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entryIds: [selectedEntry.id],
+          action: newStatus,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to update validation");
+
+      // Refresh detail
+      const detailRes = await fetch(
+        `/api/catalog/${encodeURIComponent(selectedEntry.tableName)}/${encodeURIComponent(selectedEntry.element)}`
+      );
+      const freshDetail = await detailRes.json();
+      setDetail(freshDetail);
+
+      // Update list
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === selectedEntry.id
+            ? {
+                ...e,
+                validationStatus:
+                  newStatus === "validate" ? "VALIDATED" : "DRAFT",
+              }
+            : e
+        )
+      );
+      refreshStats();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Bulk validate/unvalidate
+  const handleBulkValidation = async (action: "validate" | "unvalidate") => {
+    if (bulkSelected.size === 0) return;
+    setBulkValidating(true);
+    try {
+      const res = await fetch("/api/catalog/validate", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entryIds: Array.from(bulkSelected),
+          action,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to update validation");
+      const data = await res.json();
+
+      // Refresh entries and stats
+      fetchEntries();
+      refreshStats();
+      setBulkSelected(new Set());
+
+      // Show a brief notification via console
+      console.log(`${data.updated} entries ${action}d`);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBulkValidating(false);
+    }
+  };
+
+  // Toggle bulk selection
+  const toggleBulkSelect = (id: string) => {
+    setBulkSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIds = entries.map((e) => e.id);
+    const allSelected = visibleIds.every((id) => bulkSelected.has(id));
+    if (allSelected) {
+      setBulkSelected((prev) => {
+        const next = new Set(prev);
+        visibleIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setBulkSelected((prev) => {
+        const next = new Set(prev);
+        visibleIds.forEach((id) => next.add(id));
+        return next;
+      });
     }
   };
 
@@ -241,13 +372,38 @@ export default function CatalogPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  const validationBadge = (entry: CatalogEntrySummary) => {
+    if (!entry.definition) return null;
+    if (entry.validationStatus === "VALIDATED") {
+      return (
+        <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 text-[10px]">
+          Validated
+        </Badge>
+      );
+    }
+    return (
+      <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 text-[10px]">
+        Draft
+      </Badge>
+    );
+  };
+
+  const sourceLabel = (source: string | null) => {
+    if (!source) return null;
+    return (
+      <span className="text-[10px] text-muted-foreground">
+        via {SOURCE_LABELS[source] || source}
+      </span>
+    );
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto overflow-auto h-full">
       <h1 className="text-2xl font-bold mb-4">Data Catalog</h1>
 
       {/* Stats bar */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
           <Card>
             <CardContent className="py-3 px-4">
               <div className="text-2xl font-bold">{stats.totalEntries}</div>
@@ -274,10 +430,16 @@ export default function CatalogPage() {
           </Card>
           <Card>
             <CardContent className="py-3 px-4">
-              <div className="text-2xl font-bold">{stats.stewardedCount}</div>
-              <div className="text-xs text-muted-foreground">
-                Has Steward
+              <div className="text-2xl font-bold text-blue-600">
+                {stats.validatedCount}
               </div>
+              <div className="text-xs text-muted-foreground">Validated</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="py-3 px-4">
+              <div className="text-2xl font-bold">{stats.stewardedCount}</div>
+              <div className="text-xs text-muted-foreground">Has Steward</div>
             </CardContent>
           </Card>
           <Card>
@@ -351,7 +513,72 @@ export default function CatalogPage() {
             <SelectItem value="false">Needs definition</SelectItem>
           </SelectContent>
         </Select>
+        <Select
+          value={validatedFilter}
+          onValueChange={(v) => {
+            setValidatedFilter(v === "__all__" ? "" : v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="All status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All status</SelectItem>
+            <SelectItem value="true">Validated</SelectItem>
+            <SelectItem value="false">Draft</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={sourceFilter}
+          onValueChange={(v) => {
+            setSourceFilter(v === "__all__" ? "" : v);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="All sources" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All sources</SelectItem>
+            <SelectItem value="MANUAL">Manual</SelectItem>
+            <SelectItem value="SYS_DOCUMENTATION">sys_documentation</SelectItem>
+            <SelectItem value="EXCEL_UPLOAD">Excel upload</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
+
+      {/* Bulk action bar */}
+      {bulkSelected.size > 0 && canEdit && (
+        <div className="flex items-center gap-3 mb-4 p-3 rounded-lg border bg-accent/30">
+          <span className="text-sm font-medium">
+            {bulkSelected.size} selected
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={bulkValidating}
+            onClick={() => handleBulkValidation("validate")}
+          >
+            Validate selected
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={bulkValidating}
+            onClick={() => handleBulkValidation("unvalidate")}
+          >
+            Unvalidate selected
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setBulkSelected(new Set())}
+          >
+            Clear selection
+          </Button>
+        </div>
+      )}
 
       {/* Table */}
       {loading ? (
@@ -374,11 +601,25 @@ export default function CatalogPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {canEdit && (
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        checked={
+                          entries.length > 0 &&
+                          entries.every((e) => bulkSelected.has(e.id))
+                        }
+                        onChange={toggleSelectAllVisible}
+                        className="rounded"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Table</TableHead>
                   <TableHead>Field</TableHead>
                   <TableHead>Label</TableHead>
                   <TableHead className="w-[120px]">Type</TableHead>
                   <TableHead>Definition</TableHead>
+                  <TableHead className="w-[80px]">Status</TableHead>
                   <TableHead>Steward</TableHead>
                 </TableRow>
               </TableHeader>
@@ -389,6 +630,16 @@ export default function CatalogPage() {
                     className="cursor-pointer hover:bg-accent/50"
                     onClick={() => openDetail(entry)}
                   >
+                    {canEdit && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={bulkSelected.has(entry.id)}
+                          onChange={() => toggleBulkSelect(entry.id)}
+                          className="rounded"
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-mono text-sm">
                       {entry.tableName}
                     </TableCell>
@@ -404,15 +655,22 @@ export default function CatalogPage() {
                         {entry.internalType}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm max-w-[200px] truncate text-muted-foreground">
-                      {entry.definition || (
-                        <span className="italic text-muted-foreground/50">
-                          No definition
-                        </span>
-                      )}
+                    <TableCell className="text-sm max-w-[200px]">
+                      <div className="truncate text-muted-foreground">
+                        {entry.definition || (
+                          <span className="italic text-muted-foreground/50">
+                            No definition
+                          </span>
+                        )}
+                      </div>
+                      {entry.definitionSource &&
+                        sourceLabel(entry.definitionSource)}
                     </TableCell>
+                    <TableCell>{validationBadge(entry)}</TableCell>
                     <TableCell className="text-sm">
-                      {entry.steward?.displayName || entry.steward?.username || "—"}
+                      {entry.steward?.displayName ||
+                        entry.steward?.username ||
+                        "\u2014"}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -424,7 +682,7 @@ export default function CatalogPage() {
           {pagination && pagination.totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
               <span className="text-sm text-muted-foreground">
-                Showing {(pagination.page - 1) * pagination.limit + 1}–
+                Showing {(pagination.page - 1) * pagination.limit + 1}&ndash;
                 {Math.min(
                   pagination.page * pagination.limit,
                   pagination.total
@@ -496,6 +754,46 @@ export default function CatalogPage() {
                   </TabsList>
 
                   <TabsContent value="definition" className="space-y-4">
+                    {/* Validation badge & action */}
+                    {detail.entry.definition && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {detail.entry.validationStatus === "VALIDATED" ? (
+                            <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                              Validated
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                              Draft
+                            </Badge>
+                          )}
+                          {detail.entry.validatedAt &&
+                            detail.entry.validatedBy && (
+                              <span className="text-xs text-muted-foreground">
+                                by{" "}
+                                {detail.entry.validatedBy.displayName ||
+                                  detail.entry.validatedBy.username}{" "}
+                                on{" "}
+                                {new Date(
+                                  detail.entry.validatedAt
+                                ).toLocaleDateString()}
+                              </span>
+                            )}
+                        </div>
+                        {canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleToggleValidation}
+                          >
+                            {detail.entry.validationStatus === "VALIDATED"
+                              ? "Unvalidate"
+                              : "Validate"}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+
                     {editing ? (
                       <div className="space-y-3">
                         <label className="text-sm font-medium">
@@ -545,13 +843,25 @@ export default function CatalogPage() {
                             </Button>
                           )}
                         </div>
-                        <p className="text-sm">
+                        <p className="text-sm whitespace-pre-wrap">
                           {detail.entry.definition || (
                             <span className="italic text-muted-foreground">
                               No definition yet
                             </span>
                           )}
                         </p>
+                        {detail.entry.definitionSource && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Source:{" "}
+                            {SOURCE_LABELS[detail.entry.definitionSource] ||
+                              detail.entry.definitionSource}
+                            {detail.entry.definitionSourceDetail && (
+                              <span className="ml-1">
+                                ({detail.entry.definitionSourceDetail})
+                              </span>
+                            )}
+                          </p>
+                        )}
                       </div>
                     )}
 

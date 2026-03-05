@@ -21,6 +21,9 @@ export async function GET(
       steward: {
         select: { id: true, username: true, displayName: true },
       },
+      validatedBy: {
+        select: { id: true, username: true, displayName: true },
+      },
       sourceSnapshot: {
         select: { id: true, label: true, createdAt: true },
       },
@@ -47,8 +50,6 @@ export async function GET(
   let inheritingTables: string[] = [];
 
   if (latestSnapshot) {
-    // Find all tables in that snapshot that have this column
-    // where definedOnTable = entry.tableName (the defining table)
     const columns = await prisma.snapshotColumn.findMany({
       where: {
         element: decodedElement,
@@ -77,6 +78,11 @@ export async function GET(
       label: entry.label,
       internalType: entry.internalType,
       definition: entry.definition,
+      definitionSource: entry.definitionSource,
+      definitionSourceDetail: entry.definitionSourceDetail,
+      validationStatus: entry.validationStatus,
+      validatedAt: entry.validatedAt,
+      validatedBy: entry.validatedBy,
       steward: entry.steward,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
@@ -106,7 +112,7 @@ export async function PATCH(
   const decodedElement = decodeURIComponent(element);
 
   const body = await request.json();
-  const { definition, stewardId } = body;
+  const { definition, stewardId, validationStatus } = body;
 
   const entry = await prisma.catalogEntry.findUnique({
     where: {
@@ -124,14 +130,37 @@ export async function PATCH(
     );
   }
 
-  const updateData: { definition?: string | null; stewardId?: string | null } = {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateData: Record<string, any> = {};
 
   if (definition !== undefined) {
     updateData.definition = definition || null;
+    // Manual edit: set source and reset validation
+    updateData.definitionSource = "MANUAL";
+    updateData.definitionSourceDetail = null;
+    updateData.validationStatus = "DRAFT";
+    updateData.validatedAt = null;
+    updateData.validatedById = null;
   }
 
   if (stewardId !== undefined) {
     updateData.stewardId = stewardId || null;
+  }
+
+  // Allow explicit validation status override (e.g., single-entry validate)
+  if (validationStatus !== undefined) {
+    updateData.validationStatus = validationStatus;
+    if (validationStatus === "VALIDATED") {
+      updateData.validatedAt = new Date();
+      const userId =
+        typeof session === "object" && "user" in session
+          ? session.user?.userId
+          : undefined;
+      updateData.validatedById = userId || null;
+    } else {
+      updateData.validatedAt = null;
+      updateData.validatedById = null;
+    }
   }
 
   const updated = await prisma.catalogEntry.update({
@@ -139,6 +168,9 @@ export async function PATCH(
     data: updateData,
     include: {
       steward: {
+        select: { id: true, username: true, displayName: true },
+      },
+      validatedBy: {
         select: { id: true, username: true, displayName: true },
       },
     },

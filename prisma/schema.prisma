@@ -165,8 +165,9 @@ model User {
   approvedById   String?        @map("approved_by_id")
   approvedBy     User?          @relation("ApprovedByAdmin", fields: [approvedById], references: [id], onDelete: SetNull)
   approvedUsers  User[]         @relation("ApprovedByAdmin")
-  catalogEntries CatalogEntry[]
-  createdAt      DateTime       @default(now()) @map("created_at")
+  catalogEntries   CatalogEntry[]
+  validatedEntries CatalogEntry[] @relation("ValidatedBy")
+  createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
   @@map("users")
@@ -176,26 +177,44 @@ model User {
 // Data Catalog
 // ============================================
 
+enum DefinitionSource {
+  MANUAL
+  SYS_DOCUMENTATION
+  EXCEL_UPLOAD
+}
+
+enum ValidationStatus {
+  DRAFT
+  VALIDATED
+}
+
 model CatalogEntry {
-  id               String                 @id @default(cuid())
-  tableName        String                 @map("table_name")
-  element          String
-  label            String
-  internalType     String                 @map("internal_type")
-  definition       String?
-  stewardId        String?                @map("steward_id")
-  steward          User?                  @relation(fields: [stewardId], references: [id], onDelete: SetNull)
-  sourceSnapshotId String                 @map("source_snapshot_id")
-  sourceSnapshot   SchemaSnapshot         @relation("CatalogSource", fields: [sourceSnapshotId], references: [id])
-  snapshots        CatalogEntrySnapshot[]
-  createdAt        DateTime               @default(now()) @map("created_at")
-  updatedAt        DateTime               @updatedAt @map("updated_at")
+  id                     String                 @id @default(cuid())
+  tableName              String                 @map("table_name")
+  element                String
+  label                  String
+  internalType           String                 @map("internal_type")
+  definition             String?
+  definitionSource       DefinitionSource?      @map("definition_source")
+  definitionSourceDetail String?                @map("definition_source_detail")
+  validationStatus       ValidationStatus       @default(DRAFT) @map("validation_status")
+  validatedAt            DateTime?              @map("validated_at")
+  validatedById          String?                @map("validated_by_id")
+  validatedBy            User?                  @relation("ValidatedBy", fields: [validatedById], references: [id], onDelete: SetNull)
+  stewardId              String?                @map("steward_id")
+  steward                User?                  @relation(fields: [stewardId], references: [id], onDelete: SetNull)
+  sourceSnapshotId       String                 @map("source_snapshot_id")
+  sourceSnapshot         SchemaSnapshot         @relation("CatalogSource", fields: [sourceSnapshotId], references: [id])
+  snapshots              CatalogEntrySnapshot[]
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
 
   @@unique([tableName, element])
   @@index([tableName])
   @@index([element])
   @@index([stewardId])
   @@index([sourceSnapshotId])
+  @@index([validationStatus])
   @@map("catalog_entries")
 }
 

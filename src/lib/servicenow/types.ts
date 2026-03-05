@@ -38,6 +38,15 @@ export interface ServiceNowApiResponse<T> {
   result: T[];
 }
 
+export interface SysDocumentationRecord {
+  sys_id: SnField;
+  name: SnField;      // table name
+  element: SnField;   // field/column name
+  hint: SnField;      // tooltip text — primary definition source
+  help: SnField;      // longer help text
+  label: SnField;     // field label
+}
+
 export interface IngestProgress {
   phase: string;
   current: number;

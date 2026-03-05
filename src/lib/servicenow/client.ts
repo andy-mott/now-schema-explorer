@@ -2,11 +2,13 @@ import type {
   ServiceNowCredentials,
   SysDbObjectRecord,
   SysDictionaryRecord,
+  SysDocumentationRecord,
   ServiceNowApiResponse,
 } from "./types";
 
 const TABLE_BATCH_SIZE = 1000;
 const COLUMN_BATCH_SIZE = 5000;
+const DOCUMENTATION_BATCH_SIZE = 2000;
 
 function getDisplayValue(
   field: { display_value: string; value: string } | string | undefined | null
@@ -147,6 +149,34 @@ export class ServiceNowClient {
     return allRecords;
   }
 
+  async fetchDocumentation(
+    onProgress?: (current: number, total: number) => void
+  ): Promise<SysDocumentationRecord[]> {
+    const endpoint = "/api/now/table/sys_documentation";
+    const query = "elementISNOTEMPTY^hintISNOTEMPTY^ORDERBYname^ORDERBYelement";
+    const fields = "sys_id,name,element,hint,help,label";
+
+    const total = await this.getTotalCount(endpoint, query);
+    const allRecords: SysDocumentationRecord[] = [];
+    let offset = 0;
+
+    while (offset < total) {
+      const response = await this.fetchApi<SysDocumentationRecord>(endpoint, {
+        sysparm_fields: fields,
+        sysparm_query: query,
+        sysparm_limit: String(DOCUMENTATION_BATCH_SIZE),
+        sysparm_offset: String(offset),
+        sysparm_display_value: "all",
+      });
+
+      allRecords.push(...response.result);
+      offset += DOCUMENTATION_BATCH_SIZE;
+      onProgress?.(Math.min(offset, total), total);
+    }
+
+    return allRecords;
+  }
+
   /**
    * Tests connectivity by fetching a count of sys_db_object records.
    * Returns the table count on success, or throws with a descriptive error.
@@ -228,6 +258,16 @@ export class ServiceNowClient {
       isExtendable: getValue(record.is_extendable) === "true",
       accessibleFrom: getValue(record.accessible_from) || null,
       numberPrefix: getDisplayValue(record.number_ref) || null,
+    };
+  }
+
+  static parseDocumentationRecord(record: SysDocumentationRecord) {
+    return {
+      tableName: getValue(record.name),
+      element: getValue(record.element),
+      hint: getValue(record.hint),
+      help: getValue(record.help),
+      label: getDisplayValue(record.label),
     };
   }
 
