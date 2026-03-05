@@ -1,3 +1,9 @@
+// Auth.js auto-detects RAILWAY_PUBLIC_DOMAIN but without protocol, causing
+// "Invalid URL" errors. Set AUTH_URL with protocol before importing next-auth.
+if (process.env.RAILWAY_PUBLIC_DOMAIN && !process.env.AUTH_URL) {
+  process.env.AUTH_URL = `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+}
+
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
 
