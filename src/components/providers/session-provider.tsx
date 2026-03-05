@@ -7,5 +7,8 @@ export function AuthSessionProvider({
 }: {
   children: React.ReactNode;
 }) {
+  if (process.env.NEXT_PUBLIC_AUTH_ENABLED !== "true") {
+    return <>{children}</>;
+  }
   return <SessionProvider>{children}</SessionProvider>;
 }

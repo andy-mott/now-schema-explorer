@@ -10,9 +10,17 @@ try {
   // Not in a git repo (e.g., Railway build without .git) — keep Railway SHA or "dev"
 }
 
+const authEnabled =
+  process.env.AUTH_SECRET &&
+  process.env.AUTH_GITHUB_ID &&
+  process.env.AUTH_GITHUB_SECRET
+    ? "true"
+    : "";
+
 const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_COMMIT_HASH: commitHash,
+    NEXT_PUBLIC_AUTH_ENABLED: authEnabled,
   },
   images: {
     remotePatterns: [
