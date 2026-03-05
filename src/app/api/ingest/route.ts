@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ingestFromInstance } from "@/lib/servicenow/ingest";
 import { progressStore } from "@/lib/servicenow/progress-store";
+import { requireAdmin } from "@/lib/auth";
 
 export async function POST(request: Request) {
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const body = await request.json();
   const { snapshotId, instanceId } = body;
 

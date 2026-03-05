@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { ServiceNowClient } from "@/lib/servicenow/client";
+import { requireAdmin } from "@/lib/auth";
 
 export async function POST(request: Request) {
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const body = await request.json();
   const { url, username, password } = body;
 

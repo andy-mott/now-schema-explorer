@@ -14,6 +14,14 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_COMMIT_HASH: commitHash,
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "avatars.githubusercontent.com",
+      },
+    ],
+  },
 };
 
 export default nextConfig;

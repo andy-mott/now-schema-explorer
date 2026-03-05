@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { parseAndIngestJson, parseCsvUpload } from "@/lib/upload/parser";
+import { requireAdmin } from "@/lib/auth";
 
 export async function POST(request: Request) {
+  if (!(await requireAdmin())) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const formData = await request.formData();
   const file = formData.get("file") as File | null;
   const label = formData.get("label") as string | null;
