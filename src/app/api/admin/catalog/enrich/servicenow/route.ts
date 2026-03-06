@@ -107,13 +107,15 @@ export async function POST(request: Request) {
 
     const childTableMap = new Map<string, string[]>();
     if (latestSnapshot && unmatchedEntries.length > 0) {
+      // Fetch all columns for this snapshot and filter in-memory to avoid
+      // exceeding PostgreSQL's query parameter limit with large OR clauses
+      const unmatchedSet = new Set(
+        unmatchedEntries.map((e) => `${e.tableName}::${e.element}`)
+      );
+
       const columns = await prisma.snapshotColumn.findMany({
         where: {
           table: { snapshotId: latestSnapshot.id },
-          OR: unmatchedEntries.map((e) => ({
-            definedOnTable: e.tableName,
-            element: e.element,
-          })),
         },
         select: {
           element: true,
@@ -124,6 +126,7 @@ export async function POST(request: Request) {
 
       for (const col of columns) {
         const key = `${col.definedOnTable}::${col.element}`;
+        if (!unmatchedSet.has(key)) continue;
         if (!childTableMap.has(key)) {
           childTableMap.set(key, []);
         }
