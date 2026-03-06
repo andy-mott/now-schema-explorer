@@ -52,20 +52,12 @@ export async function previewEnrichment(
   items: EnrichmentItem[],
   conflictResolution: ConflictResolution
 ): Promise<PreviewResult> {
-  // Batch-load all matching catalog entries
-  const keys = items.map((i) => ({
-    tableName: i.tableName,
-    element: i.element,
-  }));
+  // Build a lookup set of enrichment items for fast matching
+  const keySet = new Set(items.map((i) => `${i.tableName}::${i.element}`));
 
-  // Build a map of existing entries
-  const existingEntries = await prisma.catalogEntry.findMany({
-    where: {
-      OR: keys.map((k) => ({
-        tableName: k.tableName,
-        element: k.element,
-      })),
-    },
+  // Load all catalog entries and filter in-memory to avoid exceeding
+  // PostgreSQL's query parameter limit with large OR clauses
+  const allEntries = await prisma.catalogEntry.findMany({
     select: {
       tableName: true,
       element: true,
@@ -74,6 +66,10 @@ export async function previewEnrichment(
       definition: true,
     },
   });
+
+  const existingEntries = allEntries.filter((e) =>
+    keySet.has(`${e.tableName}::${e.element}`)
+  );
 
   const entryMap = new Map<string, (typeof existingEntries)[0]>();
   for (const entry of existingEntries) {
@@ -158,49 +154,63 @@ export async function commitEnrichment(
 ): Promise<CommitResult> {
   let updated = 0;
 
-  // Process in a transaction for atomicity
-  await prisma.$transaction(async (tx) => {
-    for (const item of selectedItems) {
-      // Read the current value before updating
-      const existing = await tx.catalogEntry.findUnique({
-        where: {
-          tableName_element: {
-            tableName: item.tableName,
-            element: item.element,
-          },
-        },
-        select: { id: true, definition: true },
-      });
+  // Process in batches to avoid transaction timeouts with large datasets.
+  // Each batch runs in its own transaction with an extended timeout.
+  const BATCH_SIZE = 100;
 
-      if (!existing) continue;
+  for (let i = 0; i < selectedItems.length; i += BATCH_SIZE) {
+    const batch = selectedItems.slice(i, i + BATCH_SIZE);
 
-      await tx.catalogEntry.update({
-        where: { id: existing.id },
-        data: {
-          definition: item.resultDefinition,
-          definitionSource: source,
-          definitionSourceDetail: sourceDetail,
-          validationStatus: "DRAFT",
-          validatedAt: null,
-          validatedById: null,
-        },
-      });
+    const batchUpdated = await prisma.$transaction(
+      async (tx) => {
+        let count = 0;
+        for (const item of batch) {
+          // Read the current value before updating
+          const existing = await tx.catalogEntry.findUnique({
+            where: {
+              tableName_element: {
+                tableName: item.tableName,
+                element: item.element,
+              },
+            },
+            select: { id: true, definition: true },
+          });
 
-      // Create audit record
-      await tx.catalogFieldAudit.create({
-        data: {
-          catalogEntryId: existing.id,
-          fieldName: "definition",
-          oldValue: existing.definition,
-          newValue: item.resultDefinition,
-          comment: comment || null,
-          userId: userId || null,
-        },
-      });
+          if (!existing) continue;
 
-      updated++;
-    }
-  });
+          await tx.catalogEntry.update({
+            where: { id: existing.id },
+            data: {
+              definition: item.resultDefinition,
+              definitionSource: source,
+              definitionSourceDetail: sourceDetail,
+              validationStatus: "DRAFT",
+              validatedAt: null,
+              validatedById: null,
+            },
+          });
+
+          // Create audit record
+          await tx.catalogFieldAudit.create({
+            data: {
+              catalogEntryId: existing.id,
+              fieldName: "definition",
+              oldValue: existing.definition,
+              newValue: item.resultDefinition,
+              comment: comment || null,
+              userId: userId || null,
+            },
+          });
+
+          count++;
+        }
+        return count;
+      },
+      { timeout: 30000 }
+    );
+
+    updated += batchUpdated;
+  }
 
   return { updated, total: selectedItems.length };
 }

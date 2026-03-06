@@ -123,6 +123,7 @@ export default function AdminCatalogPage() {
   const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeFilter>("all");
   const [committing, setCommitting] = useState(false);
   const [commitResult, setCommitResult] = useState<{ updated: number } | null>(null);
+  const [commitError, setCommitError] = useState<string | null>(null);
   const [commitComment, setCommitComment] = useState("");
 
   const refreshStats = useCallback(() => {
@@ -279,6 +280,7 @@ export default function AdminCatalogPage() {
       }));
 
     setCommitting(true);
+    setCommitError(null);
     try {
       const res = await fetch("/api/admin/catalog/enrich/commit", {
         method: "POST",
@@ -299,7 +301,8 @@ export default function AdminCatalogPage() {
       setCommitComment("");
       refreshStats();
     } catch (err) {
-      console.error(err);
+      setCommitError(err instanceof Error ? err.message : "Failed to apply enrichment");
+      console.error("Commit error:", err);
     } finally {
       setCommitting(false);
     }
@@ -579,6 +582,11 @@ export default function AdminCatalogPage() {
               {selectedCount} of {preview.items.length} entries selected
             </span>
             <div className="flex gap-3 items-center">
+              {commitError && (
+                <span className="text-sm text-red-600 font-medium">
+                  Error: {commitError}
+                </span>
+              )}
               {commitResult && (
                 <span className="text-sm text-green-600 font-medium">
                   {commitResult.updated} definitions updated
