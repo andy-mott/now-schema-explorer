@@ -56,6 +56,7 @@ export class ServiceNowClient {
         Authorization: this.authHeader,
         Accept: "application/json",
       },
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!response.ok) {
@@ -64,7 +65,15 @@ export class ServiceNowClient {
       );
     }
 
-    return response.json();
+    const text = await response.text();
+    if (!text) {
+      throw new Error("ServiceNow returned an empty response body");
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("ServiceNow returned invalid JSON");
+    }
   }
 
   async getTotalCount(

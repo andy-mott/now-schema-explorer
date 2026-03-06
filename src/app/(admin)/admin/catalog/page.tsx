@@ -81,6 +81,19 @@ interface PreviewResult {
 type ConflictResolution = "replace" | "append" | "skip";
 type ChangeTypeFilter = "all" | "new" | "replace" | "append" | "skip";
 
+async function safeJsonParse(res: Response) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      text
+        ? `Server returned invalid response: ${text.slice(0, 200)}`
+        : `Server returned an empty response (HTTP ${res.status})`
+    );
+  }
+}
+
 export default function AdminCatalogPage() {
   const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
   const [stats, setStats] = useState<CatalogStats | null>(null);
@@ -110,6 +123,7 @@ export default function AdminCatalogPage() {
   const [changeTypeFilter, setChangeTypeFilter] = useState<ChangeTypeFilter>("all");
   const [committing, setCommitting] = useState(false);
   const [commitResult, setCommitResult] = useState<{ updated: number } | null>(null);
+  const [commitComment, setCommitComment] = useState("");
 
   const refreshStats = useCallback(() => {
     fetch("/api/catalog/stats")
@@ -158,11 +172,10 @@ export default function AdminCatalogPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ snapshotId: selectedSnapshotId }),
       });
+      const data = await safeJsonParse(res);
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || "Failed to generate catalog");
       }
-      const data = await res.json();
       setGenerateResult(data);
       refreshStats();
     } catch (err) {
@@ -190,11 +203,10 @@ export default function AdminCatalogPage() {
           includeHelp: snIncludeHelp,
         }),
       });
+      const data = await safeJsonParse(res);
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || "Failed to fetch documentation");
       }
-      const data = await res.json();
       setPreview(data);
       // Select all non-skip items by default
       const defaultSelected = new Set<string>();
@@ -232,11 +244,10 @@ export default function AdminCatalogPage() {
         method: "POST",
         body: formData,
       });
+      const data = await safeJsonParse(res);
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || "Failed to parse Excel file");
       }
-      const data = await res.json();
       setPreview(data);
       // Select all non-skip items by default
       const defaultSelected = new Set<string>();
@@ -276,15 +287,16 @@ export default function AdminCatalogPage() {
           items,
           source: preview.source,
           sourceDetail: preview.sourceDetail,
+          comment: commitComment.trim() || undefined,
         }),
       });
+      const data = await safeJsonParse(res);
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || "Failed to commit enrichment");
       }
-      const data = await res.json();
       setCommitResult(data);
       setPreview(null);
+      setCommitComment("");
       refreshStats();
     } catch (err) {
       console.error(err);
@@ -553,24 +565,34 @@ export default function AdminCatalogPage() {
         </Card>
 
         {/* Action bar */}
-        <div className="flex items-center justify-between p-3 rounded-lg border bg-background sticky bottom-4">
-          <span className="text-sm text-muted-foreground">
-            {selectedCount} of {preview.items.length} entries selected
-          </span>
-          <div className="flex gap-3 items-center">
-            {commitResult && (
-              <span className="text-sm text-green-600 font-medium">
-                {commitResult.updated} definitions updated
-              </span>
-            )}
-            <Button
-              onClick={handleCommit}
-              disabled={selectedCount === 0 || committing}
-            >
-              {committing
-                ? "Applying..."
-                : `Apply ${selectedCount} selected`}
-            </Button>
+        <div className="p-3 rounded-lg border bg-background sticky bottom-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Update comment (optional)..."
+              value={commitComment}
+              onChange={(e) => setCommitComment(e.target.value)}
+              className="flex-1 text-sm"
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              {selectedCount} of {preview.items.length} entries selected
+            </span>
+            <div className="flex gap-3 items-center">
+              {commitResult && (
+                <span className="text-sm text-green-600 font-medium">
+                  {commitResult.updated} definitions updated
+                </span>
+              )}
+              <Button
+                onClick={handleCommit}
+                disabled={selectedCount === 0 || committing}
+              >
+                {committing
+                  ? "Applying..."
+                  : `Apply ${selectedCount} selected`}
+              </Button>
+            </div>
           </div>
         </div>
       </div>

@@ -13,10 +13,11 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { items, source, sourceDetail } = body as {
+  const { items, source, sourceDetail, comment } = body as {
     items: CommitItem[];
     source: DefinitionSource;
     sourceDetail: string;
+    comment?: string;
   };
 
   if (!items || !Array.isArray(items) || items.length === 0) {
@@ -33,7 +34,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await commitEnrichment(items, source, sourceDetail);
+  const userId =
+    typeof session === "object" && "user" in session
+      ? session.user?.userId
+      : undefined;
+
+  const result = await commitEnrichment(items, source, sourceDetail, userId, comment);
 
   return NextResponse.json(result);
 }

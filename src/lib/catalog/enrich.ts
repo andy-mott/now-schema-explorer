@@ -147,22 +147,35 @@ export async function previewEnrichment(
 
 /**
  * Commit selected enrichment items — applies definitions to catalog entries.
+ * Creates audit records for each definition change.
  */
 export async function commitEnrichment(
   selectedItems: CommitItem[],
   source: DefinitionSource,
-  sourceDetail: string
+  sourceDetail: string,
+  userId?: string | null,
+  comment?: string | null
 ): Promise<CommitResult> {
   let updated = 0;
 
   // Process in a transaction for atomicity
   await prisma.$transaction(async (tx) => {
     for (const item of selectedItems) {
-      const result = await tx.catalogEntry.updateMany({
+      // Read the current value before updating
+      const existing = await tx.catalogEntry.findUnique({
         where: {
-          tableName: item.tableName,
-          element: item.element,
+          tableName_element: {
+            tableName: item.tableName,
+            element: item.element,
+          },
         },
+        select: { id: true, definition: true },
+      });
+
+      if (!existing) continue;
+
+      await tx.catalogEntry.update({
+        where: { id: existing.id },
         data: {
           definition: item.resultDefinition,
           definitionSource: source,
@@ -172,7 +185,20 @@ export async function commitEnrichment(
           validatedById: null,
         },
       });
-      updated += result.count;
+
+      // Create audit record
+      await tx.catalogFieldAudit.create({
+        data: {
+          catalogEntryId: existing.id,
+          fieldName: "definition",
+          oldValue: existing.definition,
+          newValue: item.resultDefinition,
+          comment: comment || null,
+          userId: userId || null,
+        },
+      });
+
+      updated++;
     }
   });
 

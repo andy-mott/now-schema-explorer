@@ -70,6 +70,25 @@ export async function GET(
       .sort();
   }
 
+  const auditRecords = await prisma.catalogFieldAudit.findMany({
+    where: { catalogEntryId: entry.id },
+    include: {
+      user: { select: { id: true, username: true, displayName: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  const auditHistory = auditRecords.map((a) => ({
+    id: a.id,
+    fieldName: a.fieldName,
+    oldValue: a.oldValue,
+    newValue: a.newValue,
+    comment: a.comment,
+    user: a.user,
+    createdAt: a.createdAt,
+  }));
+
   return NextResponse.json({
     entry: {
       id: entry.id,
@@ -94,6 +113,7 @@ export async function GET(
       linkedAt: s.linkedAt,
       createdAt: s.snapshot.createdAt,
     })),
+    auditHistory,
     inheritingTables,
   });
 }
@@ -141,6 +161,22 @@ export async function PATCH(
     updateData.validationStatus = "DRAFT";
     updateData.validatedAt = null;
     updateData.validatedById = null;
+
+    // Create audit record for the definition change
+    const userId =
+      typeof session === "object" && "user" in session
+        ? session.user?.userId
+        : undefined;
+    await prisma.catalogFieldAudit.create({
+      data: {
+        catalogEntryId: entry.id,
+        fieldName: "definition",
+        oldValue: entry.definition,
+        newValue: definition || null,
+        comment: body.comment || null,
+        userId: userId || null,
+      },
+    });
   }
 
   if (stewardId !== undefined) {

@@ -167,6 +167,7 @@ model User {
   approvedUsers  User[]         @relation("ApprovedByAdmin")
   catalogEntries   CatalogEntry[]
   validatedEntries CatalogEntry[] @relation("ValidatedBy")
+  fieldAudits      CatalogFieldAudit[]
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
@@ -206,6 +207,7 @@ model CatalogEntry {
   sourceSnapshotId       String                 @map("source_snapshot_id")
   sourceSnapshot         SchemaSnapshot         @relation("CatalogSource", fields: [sourceSnapshotId], references: [id])
   snapshots              CatalogEntrySnapshot[]
+  fieldAudits            CatalogFieldAudit[]
   createdAt              DateTime               @default(now()) @map("created_at")
   updatedAt              DateTime               @updatedAt @map("updated_at")
 
@@ -230,4 +232,25 @@ model CatalogEntrySnapshot {
   @@index([catalogEntryId])
   @@index([snapshotId])
   @@map("catalog_entry_snapshots")
+}
+
+// ============================================
+// Field-Level Audit Trail
+// ============================================
+
+model CatalogFieldAudit {
+  id             String       @id @default(cuid())
+  catalogEntryId String       @map("catalog_entry_id")
+  catalogEntry   CatalogEntry @relation(fields: [catalogEntryId], references: [id], onDelete: Cascade)
+  fieldName      String       @map("field_name")
+  oldValue       String?      @map("old_value")
+  newValue       String?      @map("new_value")
+  comment        String?
+  userId         String?      @map("user_id")
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@index([catalogEntryId])
+  @@index([userId])
+  @@map("catalog_field_audits")
 }
