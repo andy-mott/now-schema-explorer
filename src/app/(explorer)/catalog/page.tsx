@@ -62,6 +62,15 @@ interface CatalogEntryDetail {
     createdAt: string;
   }[];
   inheritingTables: string[];
+  auditHistory: {
+    id: string;
+    fieldName: string;
+    oldValue: string | null;
+    newValue: string | null;
+    comment: string | null;
+    user: { id: string; username: string; displayName: string | null } | null;
+    createdAt: string;
+  }[];
 }
 
 interface CatalogStats {
@@ -117,6 +126,7 @@ export default function CatalogPage() {
   // Bulk selection state
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
   const [bulkValidating, setBulkValidating] = useState(false);
+  const [bulkAssigning, setBulkAssigning] = useState(false);
 
   // Distinct table names and types for filter dropdowns
   const [tableNames, setTableNames] = useState<string[]>([]);
@@ -125,6 +135,7 @@ export default function CatalogPage() {
   // Fetch user session to determine edit permissions
   const [canEdit, setCanEdit] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/session")
@@ -133,10 +144,12 @@ export default function CatalogPage() {
         const role = session?.user?.role;
         setUserRole(role || null);
         setCanEdit(role === "STEWARD" || role === "ADMIN");
+        setCurrentUserId(session?.user?.userId || null);
       })
       .catch(() => {
         setCanEdit(false);
         setUserRole(null);
+        setCurrentUserId(null);
       });
   }, []);
 
@@ -328,6 +341,31 @@ export default function CatalogPage() {
       console.error(err);
     } finally {
       setBulkValidating(false);
+    }
+  };
+
+  // Bulk assign steward
+  const handleBulkAssignSteward = async () => {
+    if (bulkSelected.size === 0 || !currentUserId) return;
+    setBulkAssigning(true);
+    try {
+      const res = await fetch("/api/catalog/steward", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entryIds: Array.from(bulkSelected),
+          stewardId: currentUserId,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to assign steward");
+
+      fetchEntries();
+      refreshStats();
+      setBulkSelected(new Set());
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setBulkAssigning(false);
     }
   };
 
@@ -570,6 +608,16 @@ export default function CatalogPage() {
           >
             Unvalidate selected
           </Button>
+          {currentUserId && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={bulkAssigning}
+              onClick={handleBulkAssignSteward}
+            >
+              {bulkAssigning ? "Assigning..." : "Assign me as steward"}
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
@@ -750,6 +798,9 @@ export default function CatalogPage() {
                     </TabsTrigger>
                     <TabsTrigger value="snapshots" className="flex-1">
                       Snapshots
+                    </TabsTrigger>
+                    <TabsTrigger value="history" className="flex-1">
+                      History
                     </TabsTrigger>
                   </TabsList>
 
@@ -953,6 +1004,55 @@ export default function CatalogPage() {
                     {detail.linkedSnapshots.length <= 1 && (
                       <p className="text-sm text-muted-foreground italic">
                         Only found in the source snapshot so far.
+                      </p>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="history" className="space-y-3">
+                    {detail.auditHistory && detail.auditHistory.length > 0 ? (
+                      <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                        {detail.auditHistory.map((audit) => (
+                          <div
+                            key={audit.id}
+                            className="p-3 rounded-md border text-sm space-y-1"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">
+                                {audit.user
+                                  ? audit.user.displayName ||
+                                    audit.user.username
+                                  : "System"}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(audit.createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Changed <span className="font-mono">{audit.fieldName}</span>
+                            </div>
+                            {audit.oldValue && (
+                              <div className="text-xs">
+                                <span className="text-muted-foreground">From: </span>
+                                <span className="line-clamp-2">{audit.oldValue}</span>
+                              </div>
+                            )}
+                            {audit.newValue && (
+                              <div className="text-xs">
+                                <span className="text-muted-foreground">To: </span>
+                                <span className="line-clamp-2">{audit.newValue}</span>
+                              </div>
+                            )}
+                            {audit.comment && (
+                              <div className="text-xs mt-1 italic text-muted-foreground">
+                                &ldquo;{audit.comment}&rdquo;
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">
+                        No change history recorded yet.
                       </p>
                     )}
                   </TabsContent>
