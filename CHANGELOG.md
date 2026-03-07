@@ -11,13 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Snowflake and SQL query generator for ServiceNow data ingested via the native Snowflake ServiceNow connector
 - Bulk AI definition drafting (draft definitions for multiple fields at once)
-- Hyperlink support in catalog definitions (auto-detects URLs and markdown-style links)
+
+## [0.5.0] - 2026-03-07
+
+### Added
+
 - Evidence-first AI drafting: retrieves official ServiceNow documentation via FluidTopics API before generating definitions
 - AI definitions are now grounded in extracted field description tables from docs pages
 - Confidence badges (Cited/Partial/Uncited) show evidence quality for each AI draft
 - Citation panel displays extracted evidence snippets with links to source documentation
 - Graceful degradation: falls back to general knowledge when no docs evidence is found
 - In-memory caching of docs pages with 24-hour TTL for efficient repeat requests
+- Hyperlink support in catalog definitions (auto-detects URLs and markdown-style links)
 - Catalog entry tagging system with colored tag badges
 - Auto-tags for definition source (Source: Manual, Source: AI, etc.) and AI confidence (Cited, Partial, Uncited)
 - Auto-tags are synced automatically when definitions are saved
@@ -119,7 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Select dropdown overflowing dialog in ingestion form
 - Field parsing for sysparm_display_value=all responses
 
-[Unreleased]: https://github.com/andy-mott/now-schema-explorer/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/andy-mott/now-schema-explorer/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/andy-mott/now-schema-explorer/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/andy-mott/now-schema-explorer/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/andy-mott/now-schema-explorer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/andy-mott/now-schema-explorer/compare/v0.2.0...v0.3.0
