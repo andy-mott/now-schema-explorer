@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { encrypt } from "@/lib/crypto";
 
 export async function GET() {
   if (!(await requireAdmin())) {
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
       name,
       url: cleanUrl,
       username,
-      encryptedPassword: password, // TODO: encrypt
+      encryptedPassword: encrypt(password),
     },
   });
 

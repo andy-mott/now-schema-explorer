@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { ingestFromInstance } from "@/lib/servicenow/ingest";
 import { progressStore } from "@/lib/servicenow/progress-store";
 import { requireAdmin } from "@/lib/auth";
+import { decrypt } from "@/lib/crypto";
 
 export async function POST(request: Request) {
   if (!(await requireAdmin())) {
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
     {
       url: instance.url,
       username: instance.username,
-      password: instance.encryptedPassword, // TODO: decrypt
+      password: decrypt(instance.encryptedPassword),
     },
     (progress) => {
       progressStore.set(snapshotId, progress);

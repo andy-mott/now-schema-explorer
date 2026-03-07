@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 import { ServiceNowClient } from "@/lib/servicenow/client";
+import { decrypt } from "@/lib/crypto";
 import {
   previewEnrichment,
   type EnrichmentItem,
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
     const client = new ServiceNowClient({
       url: instance.url,
       username: instance.username,
-      password: instance.encryptedPassword,
+      password: decrypt(instance.encryptedPassword),
     });
 
     let records;

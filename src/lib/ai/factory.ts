@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { AIClient } from "./client";
 import { OpenAIClient } from "./openai-client";
 import { AnthropicClient } from "./anthropic-client";
+import { decrypt } from "@/lib/crypto";
 
 export interface AIModelMeta {
   id: string;
@@ -29,8 +30,7 @@ export async function getActiveAIClient(): Promise<{
     );
   }
 
-  // TODO: decrypt API key when encryption is implemented
-  const apiKey = config.encryptedApiKey;
+  const apiKey = decrypt(config.encryptedApiKey);
 
   const modelConfig: AIModelMeta = {
     id: config.id,

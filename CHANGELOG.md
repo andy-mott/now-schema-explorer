@@ -9,8 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Snowflake and SQL query generator for ServiceNow data ingested via the native Snowflake ServiceNow connector
 - Bulk AI definition drafting (draft definitions for multiple fields at once)
-- Credential encryption for stored API keys and ServiceNow instance passwords
+
+## [0.4.1] - 2026-03-07
+
+### Added
+
+- AES-256-GCM encryption for stored credentials (ServiceNow passwords and AI API keys)
+- Graceful plaintext migration: existing unencrypted credentials auto-detected and encrypted on next save
+- Configurable via `CREDENTIAL_ENCRYPTION_KEY` environment variable
+- Version page at `/version` displaying changelog with styled version cards
+- Clickable version label in header linking to version page
+- CLAUDE.md project instructions with changelog maintenance rules
+
+### Removed
+
+- Unused `bcryptjs` dependency
 
 ## [0.4.0] - 2026-03-07
 
@@ -90,7 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Select dropdown overflowing dialog in ingestion form
 - Field parsing for sysparm_display_value=all responses
 
-[Unreleased]: https://github.com/andy-mott/now-schema-explorer/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/andy-mott/now-schema-explorer/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/andy-mott/now-schema-explorer/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/andy-mott/now-schema-explorer/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/andy-mott/now-schema-explorer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/andy-mott/now-schema-explorer/compare/v0.1.0...v0.2.0

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { encrypt } from "@/lib/crypto";
 
 export async function PUT(
   request: Request,
@@ -39,7 +40,7 @@ export async function PUT(
 
   // Only update password if a new one is provided
   if (password) {
-    data.encryptedPassword = password; // TODO: encrypt
+    data.encryptedPassword = encrypt(password);
   }
 
   const instance = await prisma.serviceNowInstance.update({

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { encrypt } from "@/lib/crypto";
 
 export async function GET() {
   if (!(await requireAdmin())) {
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
       provider,
       baseUrl: baseUrl || null,
       modelId,
-      encryptedApiKey: apiKey, // TODO: encrypt
+      encryptedApiKey: encrypt(apiKey),
     },
     select: {
       id: true,

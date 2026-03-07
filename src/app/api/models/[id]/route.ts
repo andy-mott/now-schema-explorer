@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { encrypt } from "@/lib/crypto";
 
 export async function PUT(
   request: Request,
@@ -37,7 +38,7 @@ export async function PUT(
 
   // Only update API key if a new one is provided
   if (apiKey) {
-    data.encryptedApiKey = apiKey; // TODO: encrypt
+    data.encryptedApiKey = encrypt(apiKey);
   }
 
   const model = await prisma.aIModelConfig.update({
