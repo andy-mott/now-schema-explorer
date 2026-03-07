@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { auditFieldChanges } from "@/lib/catalog/audit";
 
 export async function POST(request: Request) {
   const session = await requireAdmin();
@@ -37,6 +38,11 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  const userId =
+    typeof session === "object" && "user" in session
+      ? session.user?.userId
+      : undefined;
 
   // Get all columns from this snapshot, grouped by (definedOnTable, element)
   const columns = await prisma.snapshotColumn.findMany({
@@ -87,14 +93,34 @@ export async function POST(request: Request) {
     });
 
     if (existing) {
+      // Fetch current values for audit comparison
+      const current = await prisma.catalogEntry.findUnique({
+        where: { id: existing.id },
+        select: { label: true, internalType: true },
+      });
+
+      const newValues = {
+        label: field.label,
+        internalType: field.internalType,
+      };
+
       // Update label and internalType, preserve definition and steward
       await prisma.catalogEntry.update({
         where: { id: existing.id },
-        data: {
-          label: field.label,
-          internalType: field.internalType,
-        },
+        data: newValues,
       });
+
+      // Audit any field changes
+      if (current) {
+        await auditFieldChanges(
+          prisma,
+          existing.id,
+          current,
+          newValues,
+          userId || null
+        );
+      }
+
       updated++;
 
       // Link snapshot if not already linked

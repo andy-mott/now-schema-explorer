@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireStewardOrAdmin } from "@/lib/auth";
+import { auditFieldChangesBulk } from "@/lib/catalog/audit";
 
 export async function PATCH(request: Request) {
   const session = await requireStewardOrAdmin();
@@ -34,12 +35,25 @@ export async function PATCH(request: Request) {
       ? session.user?.userId
       : undefined;
 
+  // Fetch current values for audit trail
+  const currentEntries = await prisma.catalogEntry.findMany({
+    where: { id: { in: entryIds } },
+    select: { id: true, validationStatus: true },
+  });
+
   if (action === "validate") {
-    const result = await prisma.catalogEntry.updateMany({
+    // Only validate entries that have a definition
+    const validatable = await prisma.catalogEntry.findMany({
       where: {
         id: { in: entryIds },
-        // Only validate entries that have a definition
         definition: { not: null },
+      },
+      select: { id: true, validationStatus: true },
+    });
+
+    const result = await prisma.catalogEntry.updateMany({
+      where: {
+        id: { in: validatable.map((e) => e.id) },
       },
       data: {
         validationStatus: "VALIDATED",
@@ -47,6 +61,17 @@ export async function PATCH(request: Request) {
         validatedById: userId || null,
       },
     });
+
+    // Create audit records for entries that actually changed
+    await auditFieldChangesBulk(
+      prisma,
+      validatable.map((e) => ({
+        id: e.id,
+        oldValues: { validationStatus: e.validationStatus },
+      })),
+      { validationStatus: "VALIDATED" },
+      userId || null
+    );
 
     return NextResponse.json({ updated: result.count });
   } else {
@@ -58,6 +83,17 @@ export async function PATCH(request: Request) {
         validatedById: null,
       },
     });
+
+    // Create audit records for entries that actually changed
+    await auditFieldChangesBulk(
+      prisma,
+      currentEntries.map((e) => ({
+        id: e.id,
+        oldValues: { validationStatus: e.validationStatus },
+      })),
+      { validationStatus: "DRAFT" },
+      userId || null
+    );
 
     return NextResponse.json({ updated: result.count });
   }

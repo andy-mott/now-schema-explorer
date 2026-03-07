@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireStewardOrAdmin } from "@/lib/auth";
+import { auditFieldChanges } from "@/lib/catalog/audit";
 
 export async function GET(
   _request: Request,
@@ -143,6 +144,7 @@ export async function PATCH(
     },
     include: {
       steward: { select: { username: true, displayName: true } },
+      validatedBy: { select: { username: true, displayName: true } },
     },
   });
 
@@ -152,6 +154,11 @@ export async function PATCH(
       { status: 404 }
     );
   }
+
+  const userId =
+    typeof session === "object" && "user" in session
+      ? session.user?.userId
+      : undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updateData: Record<string, any> = {};
@@ -164,54 +171,10 @@ export async function PATCH(
     updateData.validationStatus = "DRAFT";
     updateData.validatedAt = null;
     updateData.validatedById = null;
-
-    // Create audit record for the definition change
-    const userId =
-      typeof session === "object" && "user" in session
-        ? session.user?.userId
-        : undefined;
-    await prisma.catalogFieldAudit.create({
-      data: {
-        catalogEntryId: entry.id,
-        fieldName: "definition",
-        oldValue: entry.definition,
-        newValue: definition || null,
-        comment: body.comment || null,
-        userId: userId || null,
-      },
-    });
   }
 
-  if (stewardId !== undefined && stewardId !== entry.stewardId) {
+  if (stewardId !== undefined) {
     updateData.stewardId = stewardId || null;
-
-    // Resolve new steward name for audit
-    const newSteward = stewardId
-      ? await prisma.user.findUnique({
-          where: { id: stewardId },
-          select: { username: true, displayName: true },
-        })
-      : null;
-
-    const userId =
-      typeof session === "object" && "user" in session
-        ? session.user?.userId
-        : undefined;
-
-    await prisma.catalogFieldAudit.create({
-      data: {
-        catalogEntryId: entry.id,
-        fieldName: "steward",
-        oldValue: entry.steward
-          ? entry.steward.displayName || entry.steward.username
-          : null,
-        newValue: newSteward
-          ? newSteward.displayName || newSteward.username
-          : null,
-        comment: body.comment || null,
-        userId: userId || null,
-      },
-    });
   }
 
   // Allow explicit validation status override (e.g., single-entry validate)
@@ -219,16 +182,41 @@ export async function PATCH(
     updateData.validationStatus = validationStatus;
     if (validationStatus === "VALIDATED") {
       updateData.validatedAt = new Date();
-      const userId =
-        typeof session === "object" && "user" in session
-          ? session.user?.userId
-          : undefined;
       updateData.validatedById = userId || null;
     } else {
       updateData.validatedAt = null;
       updateData.validatedById = null;
     }
   }
+
+  // Resolve display names for ID fields
+  const resolvedNames: Record<string, { old: string | null; new: string | null }> = {};
+
+  if ("stewardId" in updateData && updateData.stewardId !== entry.stewardId) {
+    const newSteward = updateData.stewardId
+      ? await prisma.user.findUnique({
+          where: { id: updateData.stewardId },
+          select: { username: true, displayName: true },
+        })
+      : null;
+    resolvedNames.stewardId = {
+      old: entry.steward
+        ? entry.steward.displayName || entry.steward.username
+        : null,
+      new: newSteward ? newSteward.displayName || newSteward.username : null,
+    };
+  }
+
+  // Audit all field changes
+  await auditFieldChanges(
+    prisma,
+    entry.id,
+    entry,
+    updateData,
+    userId || null,
+    body.comment || null,
+    resolvedNames
+  );
 
   const updated = await prisma.catalogEntry.update({
     where: { id: entry.id },

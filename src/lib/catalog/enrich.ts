@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import type { DefinitionSource } from "@/generated/prisma/client";
+import { auditFieldChanges } from "@/lib/catalog/audit";
 
 export type ConflictResolution = "replace" | "append" | "skip";
 
@@ -165,7 +166,7 @@ export async function commitEnrichment(
       async (tx) => {
         let count = 0;
         for (const item of batch) {
-          // Read the current value before updating
+          // Read the current values before updating
           const existing = await tx.catalogEntry.findUnique({
             where: {
               tableName_element: {
@@ -173,34 +174,42 @@ export async function commitEnrichment(
                 element: item.element,
               },
             },
-            select: { id: true, definition: true },
+            select: {
+              id: true,
+              definition: true,
+              definitionSource: true,
+              definitionSourceDetail: true,
+              validationStatus: true,
+            },
           });
 
           if (!existing) continue;
 
+          const newValues = {
+            definition: item.resultDefinition,
+            definitionSource: source,
+            definitionSourceDetail: sourceDetail,
+            validationStatus: "DRAFT" as const,
+          };
+
           await tx.catalogEntry.update({
             where: { id: existing.id },
             data: {
-              definition: item.resultDefinition,
-              definitionSource: source,
-              definitionSourceDetail: sourceDetail,
-              validationStatus: "DRAFT",
+              ...newValues,
               validatedAt: null,
               validatedById: null,
             },
           });
 
-          // Create audit record
-          await tx.catalogFieldAudit.create({
-            data: {
-              catalogEntryId: existing.id,
-              fieldName: "definition",
-              oldValue: existing.definition,
-              newValue: item.resultDefinition,
-              comment: comment || null,
-              userId: userId || null,
-            },
-          });
+          // Audit all changed fields
+          await auditFieldChanges(
+            tx,
+            existing.id,
+            existing,
+            newValues,
+            userId || null,
+            comment || null
+          );
 
           count++;
         }

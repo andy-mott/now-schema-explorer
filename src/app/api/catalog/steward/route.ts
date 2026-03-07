@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireStewardOrAdmin } from "@/lib/auth";
+import { auditFieldChangesBulk } from "@/lib/catalog/audit";
 import type { Prisma } from "@/generated/prisma/client";
 
 /**
@@ -93,9 +94,8 @@ export async function PATCH(request: Request) {
       ? session.user?.userId
       : undefined;
 
-  // Resolve steward names for audit trail
-  const [oldStewards, newSteward] = await Promise.all([
-    // We only need old steward names for entries that are actually changing
+  // Fetch entries and resolve steward name for audit
+  const [currentEntries, newSteward] = await Promise.all([
     prisma.catalogEntry.findMany({
       where,
       select: {
@@ -117,7 +117,7 @@ export async function PATCH(request: Request) {
     : null;
 
   // Filter to only entries that are actually changing
-  const changing = oldStewards.filter((e) => e.stewardId !== stewardId);
+  const changing = currentEntries.filter((e) => e.stewardId !== stewardId);
 
   if (changing.length === 0) {
     return NextResponse.json({ updated: 0 });
@@ -138,18 +138,26 @@ export async function PATCH(request: Request) {
           data: { stewardId: stewardId || null },
         });
 
-        await tx.catalogFieldAudit.createMany({
-          data: batch.map((entry) => ({
-            catalogEntryId: entry.id,
-            fieldName: "steward",
-            oldValue: entry.steward
-              ? entry.steward.displayName || entry.steward.username
-              : null,
-            newValue: newStewardName,
-            comment: null,
-            userId: userId || null,
+        await auditFieldChangesBulk(
+          tx,
+          batch.map((entry) => ({
+            id: entry.id,
+            oldValues: {
+              stewardId: entry.stewardId,
+            },
+            resolvedOldNames: {
+              stewardId: entry.steward
+                ? entry.steward.displayName || entry.steward.username
+                : null,
+            },
           })),
-        });
+          { stewardId: stewardId || null },
+          userId || null,
+          null,
+          {
+            stewardId: { new: newStewardName },
+          }
+        );
       },
       { timeout: 30000 }
     );
