@@ -28,6 +28,7 @@ interface CatalogStats {
 export default function AdminPage() {
   const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([]);
   const [instances, setInstances] = useState<{ id: string; name: string; url: string }[]>([]);
+  const [aiModels, setAiModels] = useState<{ id: string }[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [catalogStats, setCatalogStats] = useState<CatalogStats | null>(null);
 
@@ -39,6 +40,10 @@ export default function AdminPage() {
     fetch("/api/instances")
       .then((r) => r.json())
       .then(setInstances)
+      .catch(console.error);
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then(setAiModels)
       .catch(console.error);
     fetch("/api/admin/users")
       .then((r) => r.json())
@@ -54,7 +59,7 @@ export default function AdminPage() {
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Admin Dashboard</h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
         <Card>
           <CardHeader>
             <CardTitle className="text-3xl">{snapshots.length}</CardTitle>
@@ -65,6 +70,12 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle className="text-3xl">{instances.length}</CardTitle>
             <CardDescription>Connected Instances</CardDescription>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-3xl">{aiModels.length}</CardTitle>
+            <CardDescription>AI Models</CardDescription>
           </CardHeader>
         </Card>
         <Card>
@@ -156,6 +167,20 @@ export default function AdminPage() {
           <CardContent>
             <Button asChild>
               <Link href="/admin/catalog">Manage Catalog</Link>
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Models</CardTitle>
+            <CardDescription>
+              Configure AI providers for definition drafting
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/admin/models">Manage Models</Link>
             </Button>
           </CardContent>
         </Card>

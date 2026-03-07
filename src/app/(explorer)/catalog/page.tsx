@@ -94,6 +94,7 @@ const SOURCE_LABELS: Record<string, string> = {
   MANUAL: "Manual",
   SYS_DOCUMENTATION: "sys_documentation",
   EXCEL_UPLOAD: "Excel",
+  AI_GENERATED: "AI",
 };
 
 export default function CatalogPage() {
@@ -122,6 +123,15 @@ export default function CatalogPage() {
   const [editing, setEditing] = useState(false);
   const [editDefinition, setEditDefinition] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // AI drafting state
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [aiDraftMeta, setAiDraftMeta] = useState<{
+    model: string;
+    modelId: string;
+    provider: string;
+  } | null>(null);
 
   // Bulk selection state
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
@@ -213,6 +223,8 @@ export default function CatalogPage() {
     setEditing(false);
     setDetailLoading(true);
     setDetail(null);
+    setDraftError(null);
+    setAiDraftMeta(null);
 
     fetch(
       `/api/catalog/${encodeURIComponent(entry.tableName)}/${encodeURIComponent(entry.element)}`
@@ -227,12 +239,21 @@ export default function CatalogPage() {
     if (!selectedEntry) return;
     setSaving(true);
     try {
+      // If saving an AI draft, include source metadata
+      const payload: Record<string, string | undefined> = {
+        definition: editDefinition,
+      };
+      if (aiDraftMeta) {
+        payload.definitionSource = "AI_GENERATED";
+        payload.definitionSourceDetail = `AI: ${aiDraftMeta.model} (${aiDraftMeta.modelId})`;
+      }
+
       const res = await fetch(
         `/api/catalog/${encodeURIComponent(selectedEntry.tableName)}/${encodeURIComponent(selectedEntry.element)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ definition: editDefinition }),
+          body: JSON.stringify(payload),
         }
       );
       if (!res.ok) throw new Error("Failed to save");
@@ -247,6 +268,7 @@ export default function CatalogPage() {
                 ...prev.entry,
                 definition: updated.definition,
                 definitionSource: updated.definitionSource,
+                definitionSourceDetail: updated.definitionSourceDetail,
                 validationStatus: updated.validationStatus,
               },
             }
@@ -265,10 +287,45 @@ export default function CatalogPage() {
         )
       );
       setEditing(false);
+      setAiDraftMeta(null);
     } catch (err) {
       console.error(err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Draft definition with AI
+  const handleDraftWithAI = async () => {
+    if (!selectedEntry) return;
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      const res = await fetch("/api/catalog/draft-definition", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tableName: selectedEntry.tableName,
+          element: selectedEntry.element,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDraftError(data.error || "Failed to draft definition");
+        return;
+      }
+      // Enter edit mode with the AI draft
+      setEditDefinition(data.definition);
+      setAiDraftMeta({
+        model: data.model,
+        modelId: data.modelId,
+        provider: data.provider,
+      });
+      setEditing(true);
+    } catch {
+      setDraftError("Failed to reach the AI drafting service.");
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -619,6 +676,7 @@ export default function CatalogPage() {
             <SelectItem value="MANUAL">Manual</SelectItem>
             <SelectItem value="SYS_DOCUMENTATION">sys_documentation</SelectItem>
             <SelectItem value="EXCEL_UPLOAD">Excel upload</SelectItem>
+            <SelectItem value="AI_GENERATED">AI generated</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -901,16 +959,26 @@ export default function CatalogPage() {
 
                     {editing ? (
                       <div className="space-y-3">
-                        <label className="text-sm font-medium">
-                          Definition
-                        </label>
+                        <div className="flex items-center justify-between">
+                          <label className="text-sm font-medium">
+                            Definition
+                          </label>
+                          {aiDraftMeta && (
+                            <span className="text-xs text-muted-foreground">
+                              Drafted by {aiDraftMeta.model}
+                            </span>
+                          )}
+                        </div>
                         <textarea
                           className="w-full min-h-[120px] rounded-md border bg-background px-3 py-2 text-sm"
                           value={editDefinition}
                           onChange={(e) => setEditDefinition(e.target.value)}
                           placeholder="Enter a definition for this field..."
                         />
-                        <div className="flex gap-2">
+                        {draftError && (
+                          <p className="text-sm text-destructive">{draftError}</p>
+                        )}
+                        <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             onClick={handleSaveDefinition}
@@ -921,10 +989,25 @@ export default function CatalogPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => setEditing(false)}
+                            onClick={() => {
+                              setEditing(false);
+                              setAiDraftMeta(null);
+                              setDraftError(null);
+                            }}
                           >
                             Cancel
                           </Button>
+                          {canEdit && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="ml-auto"
+                              onClick={handleDraftWithAI}
+                              disabled={drafting}
+                            >
+                              {drafting ? "Drafting..." : "Draft with AI"}
+                            </Button>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -934,20 +1017,34 @@ export default function CatalogPage() {
                             Definition
                           </span>
                           {canEdit && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setEditDefinition(
-                                  detail.entry.definition || ""
-                                );
-                                setEditing(true);
-                              }}
-                            >
-                              Edit
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditDefinition(
+                                    detail.entry.definition || ""
+                                  );
+                                  setAiDraftMeta(null);
+                                  setEditing(true);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleDraftWithAI}
+                                disabled={drafting}
+                              >
+                                {drafting ? "Drafting..." : "Draft with AI"}
+                              </Button>
+                            </div>
                           )}
                         </div>
+                        {draftError && !editing && (
+                          <p className="text-sm text-destructive mb-2">{draftError}</p>
+                        )}
                         <p className="text-sm whitespace-pre-wrap">
                           {detail.entry.definition || (
                             <span className="italic text-muted-foreground">

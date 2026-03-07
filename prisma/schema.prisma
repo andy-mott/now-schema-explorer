@@ -26,6 +26,29 @@ model ServiceNowInstance {
 }
 
 // ============================================
+// AI Model Configuration
+// ============================================
+
+enum AIProvider {
+  OPENAI
+  ANTHROPIC
+}
+
+model AIModelConfig {
+  id              String     @id @default(cuid())
+  name            String
+  provider        AIProvider
+  baseUrl         String?    @map("base_url")
+  modelId         String     @map("model_id")
+  encryptedApiKey String     @map("encrypted_api_key")
+  isActive        Boolean    @default(true) @map("is_active")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  @@map("ai_model_configs")
+}
+
+// ============================================
 // Schema Snapshots (versioned)
 // ============================================
 
@@ -182,6 +205,7 @@ enum DefinitionSource {
   MANUAL
   SYS_DOCUMENTATION
   EXCEL_UPLOAD
+  AI_GENERATED
 }
 
 enum ValidationStatus {

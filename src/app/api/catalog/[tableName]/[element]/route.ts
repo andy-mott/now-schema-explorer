@@ -133,7 +133,7 @@ export async function PATCH(
   const decodedElement = decodeURIComponent(element);
 
   const body = await request.json();
-  const { definition, stewardId, validationStatus } = body;
+  const { definition, stewardId, validationStatus, definitionSource, definitionSourceDetail } = body;
 
   const entry = await prisma.catalogEntry.findUnique({
     where: {
@@ -165,9 +165,10 @@ export async function PATCH(
 
   if (definition !== undefined) {
     updateData.definition = definition || null;
-    // Manual edit: set source and reset validation
-    updateData.definitionSource = "MANUAL";
-    updateData.definitionSourceDetail = null;
+    // Use provided source (e.g., AI_GENERATED) or default to MANUAL
+    updateData.definitionSource = definitionSource || "MANUAL";
+    updateData.definitionSourceDetail = definitionSourceDetail || null;
+    // Reset validation when definition changes
     updateData.validationStatus = "DRAFT";
     updateData.validatedAt = null;
     updateData.validatedById = null;
